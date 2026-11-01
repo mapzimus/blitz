@@ -6,6 +6,7 @@ import { parsePad } from './pad.js';
 import { parseModel } from './model.js';
 import { TexSource, mapToGroup, modelToGroup } from './build.js';
 import { cache } from './store.js';
+import { Bots } from './bots.js';
 
 const $ = s => document.querySelector(s);
 const status = t => { $('#dirstatus').textContent = t; };
@@ -82,7 +83,9 @@ function resize() {
 }
 addEventListener('resize', resize); resize();
 
-const world = { group: null, solid: [], pad: null, spawn: new THREE.Vector3(0, 2, 0), targets: [] };
+const world = { group: null, solid: [], pad: null, spawn: new THREE.Vector3(0, 2, 0), targets: [], bots: null };
+scene.add(new THREE.HemisphereLight(0xcfd8e8, 0x3a3328, 1.6));
+const sun = new THREE.DirectionalLight(0xfff0dd, 1.2); sun.position.set(3, 10, 4); scene.add(sun);
 const player = {
   pos: new THREE.Vector3(), vel: new THREE.Vector3(), yaw: 0, pitch: 0,
   eye: 1.5, radius: 0.35, grounded: false, hp: 100, ammo: 40, kills: 0,
@@ -168,6 +171,7 @@ function step(dt) {
   camera.rotation.set(0, 0, 0, 'YXZ');
   camera.rotation.y = player.yaw; camera.rotation.x = player.pitch;
 
+  if (world.bots) world.bots.update(dt, player);
   // targets bob + spin
   const t = performance.now() / 1000;
   for (const tg of world.targets) if (tg.visible) { tg.rotation.y = t * 1.5; tg.position.y = tg.userData.y + Math.sin(t * 2 + tg.userData.y) * 0.1; }
@@ -179,8 +183,17 @@ function step(dt) {
 }
 
 function respawn() {
-  player.pos.copy(world.spawn); player.vel.set(0, 0, 0); player.hp = 100;
-  $('#hp').textContent = player.hp;
+  const nodes = world.pad ? world.pad.nodes.filter(nd => Number.isFinite(nd.pos[0])) : [];
+  if (nodes.length) { const s = nodes[Math.floor(Math.random() * nodes.length)]; world.spawn.set(s.pos[0], s.pos[1] + 0.2, s.pos[2]); }
+  player.pos.copy(world.spawn); player.vel.set(0, 0, 0); player.hp = 100; player.ammo = Math.max(player.ammo, 40);
+  $('#hp').textContent = player.hp; $('#ammo').textContent = player.ammo;
+}
+let hurt = 0;
+function playerHit(bot, dmg) {
+  if (!dmg) return;
+  player.hp -= dmg; hurt = 0.25;
+  $('#hp').textContent = Math.max(0, player.hp);
+  if (player.hp <= 0) { player.deaths = (player.deaths || 0) + 1; msg('YOU WERE SPLIT', 2000); respawn(); }
 }
 
 // ---------- weapon ----------
@@ -195,10 +208,13 @@ function fire() {
   recoil = 0.03; flash.intensity = 30; flash.position.copy(camera.position);
   const dir = new THREE.Vector3(); camera.getWorldDirection(dir);
   ray.set(camera.position, dir); ray.far = 200;
-  const hits = ray.intersectObjects([...world.targets.filter(t => t.visible), ...world.solid], true);
+  const botGroups = world.bots ? world.bots.groups : [];
+  const hits = ray.intersectObjects([...botGroups, ...world.targets.filter(t => t.visible), ...world.solid], true);
   if (hits.length) {
+    const bot = world.bots && world.bots.find(hits[0].object);
+    if (bot) { if (world.bots.hit(bot, 34)) { player.kills++; msg(`SPLIT  ${player.kills}`); } return; }
     let o = hits[0].object; while (o.parent && !o.userData.target) o = o.parent;
-    if (o.userData.target) { o.visible = false; player.kills++; msg(`HIT ${player.kills}/${world.targets.length}`); if (player.kills === world.targets.length) msg('ARENA CLEARED', 5000); }
+    if (o.userData.target) { o.visible = false; player.ammo = Math.min(99, player.ammo + 20); $('#ammo').textContent = player.ammo; msg('+20 AMMO'); }
   }
 }
 
@@ -265,12 +281,21 @@ async function enter(levelName) {
     weapon.scale.setScalar(0.12 * (gm.scale || 1));
     weapon.position.copy(weaponRest);
     weapon.rotation.set(0, Math.PI, 0);
-    // The transparent stream on gun models is the muzzle flash; only show it while firing.
+    // Gun models carry their muzzle flash as big alpha-textured quads; only show those while firing.
     weapon.flash = [];
-    weapon.traverse(o => { if (o.isMesh && o.renderOrder === 10) { o.visible = false; weapon.flash.push(o); } });
+    weapon.traverse(o => {
+      if (!o.isMesh) return;
+      const alpha = o.material.every(m => m.map && m.map.hasAlpha);
+      if (o.userData.stream === 2 || (alpha && o.geometry.boundingSphere.radius > 0.25)) { o.visible = false; weapon.flash.push(o); }
+    });
     weaponScene.add(weapon);
     weaponScene.add(new THREE.AmbientLight(0xffffff, 1));
   }
+
+  // Bots: the arena's own roster, patrolling its nav graph.
+  if (world.bots) for (const b of world.bots.list) scene.remove(b.group);
+  world.bots = new Bots({ pak, texSrc, pad: world.pad, scene, solid: world.solid, onPlayerHit: playerHit, onBotKilled: () => {} });
+  world.bots.spawn(Math.min(4, Math.max(1, world.bots.models.length)));
 
   player.kills = 0; player.ammo = 40; $('#ammo').textContent = player.ammo;
   respawn();
@@ -287,17 +312,24 @@ $('#go').addEventListener('click', () => enter($('#level').value).catch(e => { s
 addEventListener('keydown', e => { if (e.code === 'Escape' && world.group) { $('#setup').hidden = false; } });
 $('#setup').addEventListener('click', e => { if (world.group && e.target === $('#setup')) { $('#setup').hidden = true; grabMouse(); } });
 
+// Debug handle for the console; tick() forces frames when the tab is not being painted.
+window.sundial = { scene, weaponScene, world, player, camera, get weapon() { return weapon; }, tick: (n = 1, dt = 1 / 60) => { for (let i = 0; i < n; i++) render(dt); } };
+
 // ---------- loop ----------
 let last = performance.now();
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  render(dt);
+  requestAnimationFrame(frame);
+}
+function render(dt) {
   if (playing()) step(dt);
   else if (world.group) { camera.position.copy(player.pos); camera.position.y += player.eye; }
   if (world.sky) world.sky.position.copy(camera.position);
   flash.intensity *= 0.6;
+  if (hurt > 0) { hurt -= dt; $('#hud').style.boxShadow = `inset 0 0 ${80 * hurt * 4}px #d00`; } else $('#hud').style.boxShadow = '';
   renderer.autoClear = true;
   renderer.render(scene, camera);
   if (weapon) { renderer.autoClear = false; renderer.clearDepth(); renderer.render(weaponScene, weaponCam); }
-  requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

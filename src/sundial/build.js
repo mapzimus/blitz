@@ -60,7 +60,8 @@ export function streamToMesh(stream, materials, texSrc, opts = {}) {
     let mi = matIndex.get(grp.mat);
     if (mi === undefined) {
       const tex = texSrc.get(m, opts.embedded);
-      const mat = new THREE.MeshBasicMaterial({
+      const Mat = opts.lit ? THREE.MeshLambertMaterial : THREE.MeshBasicMaterial;
+      const mat = new Mat({
         map: tex,
         vertexColors: !!g.getAttribute('color'),
         side: THREE.DoubleSide,
@@ -87,7 +88,7 @@ export function modelToGroup(model, texSrc, opts = {}) {
     part.forEach((st, si) => {
       if (!st || !st.groups.length) return;
       const mesh = streamToMesh(st, model.materials, texSrc, { ...opts, embedded: model.embedded, transparent: si === 2, vertexColors: false });
-      mesh.userData.part = pi;
+      mesh.userData.part = pi; mesh.userData.stream = si;
       grp.add(mesh);
     });
   });
