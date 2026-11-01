@@ -5,15 +5,15 @@ import { parseModel } from './model.js';
 import { modelToGroup, hideFlash } from './build.js';
 import { Rig, RWRIST, HEAD, gunGrip } from './skeleton.js';
 import { WEAPONS, BOT_WEAPONS } from './weapons.js';
-import { charName } from './names.js';
+import { CHARACTER_TEXT } from './names.js';
 
 const DEATH = ['chestshot1_m0', 'chestshot2_m0', 'heartshot_m0', 'shothead_m0', 'shothead2_m0', 'fall_m0', 'stomachhit_m0'];
 const HIT = ['hit_1_m0', 'hit_2_m0', 'hit_3_m0', 'hit_4_m0', 'hit_5_m0', 'Hit_react1_m0', 'Hit_react2_m0'];
 const pick = a => a[Math.floor(Math.random() * a.length)];
 
 export class Bots {
-  constructor({ pak, gun, texSrc, gunTex, pad, scene, solid, anims, bind, onShoot, onBotKilled, names }) {
-    this.scene = scene; this.solid = solid; this.onShoot = onShoot; this.onBotKilled = onBotKilled;
+  constructor({ pak, gun, texSrc, gunTex, pad, scene, solid, anims, bind, onShoot, onBotKilled, names, text }) {
+    this.scene = scene; this.solid = solid; this.onShoot = onShoot; this.onBotKilled = onBotKilled; this.text = text;
     this.anims = anims; this.bind = bind; this.gun = gun; this.gunTex = gunTex; this.names = names || []; this.pak = pak;
     this.ray = new THREE.Raycaster();
     this.list = [];
@@ -47,7 +47,7 @@ export class Bots {
       const g = modelToGroup(model, this.texSrc, { lit: true });
       g.scale.setScalar(model.scale || 1);
       g.userData.bot = true;
-      const b = { id: i, name: charName(name) || this.names[i] || name, group: g, hp: 100, node: null, target: null, cool: 1 + Math.random(), dead: 0, speed: 2.6 + Math.random() * 0.8, hitFlash: 0, react: 0, rig: null, state: '', kills: 0, deaths: 0, weapon: null, gunObj: null };
+      const b = { id: i, name: (this.text && this.text.get(CHARACTER_TEXT[name])) || this.names[i] || `Contender ${i + 1}`, group: g, hp: 100, node: null, target: null, cool: 1 + Math.random(), dead: 0, speed: 2.6 + Math.random() * 0.8, hitFlash: 0, react: 0, rig: null, state: '', kills: 0, deaths: 0, weapon: null, gunObj: null };
       if (this.bind) {
         b.rig = new Rig(g, model, this.bind);
         // Hats are separate models in character space; they ride the head bone.

@@ -1,4 +1,4 @@
-"""Decode TimeSplitters 2 PS2 .raw textures (textures/*.raw) to PNG.
+"""Decode PS2 .raw textures (textures/*.raw) to PNG.
 
 Header (16 bytes, LE): u32 a, u32 b, u32 width, u32 height
 Then: 256 x RGBA palette (PS2: alpha 0x80 = opaque), then width*height 8-bit indices.

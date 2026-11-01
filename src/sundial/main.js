@@ -1,4 +1,4 @@
-// SUNDIAL: browser runtime for a PS2 arena shooter, fed from the player's own disc copy.
+// SUNDIAL: browser runtime for a PS2 arena shooter, fed from the player's own disc copy or asset pack.
 import * as THREE from 'three';
 import { Pak } from './pak.js';
 import { parseMap } from './map.js';
@@ -8,10 +8,12 @@ import { parseAnim } from './anim.js';
 import { makeBind } from './skeleton.js';
 import { TexSource, mapToGroup, modelToGroup, hideFlash } from './build.js';
 import { LEAGUE, loadProgress, record, medalFor, unlocked, findMatch } from './league.js';
+import { touch, initTouch } from './touch.js';
 import { cache } from './store.js';
 import { Bots } from './bots.js';
 import { Sfx } from './audio.js';
-import { WEAPONS, ORDER, BOT_WEAPONS, SFX, slotName } from './weapons.js';
+import { WEAPONS, ORDER, BOT_WEAPONS, SFX, slotName, setText } from './weapons.js';
+import { TextTable, ARENA_TEXT, STORY_TEXT } from './text.js';
 import { Projectiles } from './projectiles.js';
 import { Pickups } from './pickups.js';
 import { Music } from './music.js';
@@ -20,7 +22,8 @@ const $ = s => document.querySelector(s);
 const status = t => { $('#dirstatus').textContent = t; };
 const msg = (t, ms = 2000) => { const el = $('#msg'); el.textContent = t; clearTimeout(msg.t); msg.t = setTimeout(() => (el.textContent = ''), ms); };
 const pick = a => a[Math.floor(Math.random() * a.length)];
-const BOT_NAMES = ['Cortez', 'Harry Tipper', 'Jo-Beth', 'Hank', 'Lady Jane', 'Viola', 'Gretel', 'Sgt. Shock', 'Jake Fenton', 'Chastity', 'Lt. Shade', 'Stone Golem'];
+let text = new TextTable(null); // the disc's own UI strings, once the front-end pack is available
+const arenaName = (id, kind) => text.get(kind === 'st' ? STORY_TEXT[id] : ARENA_TEXT[id], `${kind === 'st' ? 'Map' : 'Arena'} ${id}`);
 
 // ---------- file acquisition ----------
 let pickedFiles = new Map(); // lowercase name -> File
@@ -28,18 +31,36 @@ const NEEDED = ['gun.pak', 'sounds.pak', 'anim.pak', 'fe_anim.pak'];
 const ARENA = /^l_(\d+)_(ar|st)\.pak$/;
 const ARENA_IDS = [10, 11, 13, 21, 29, 32, 33, 34, 35, 36, 42, 43, 45, 46, 47, 48, 50, 55, 56, 64, 65];
 const STORY_IDS = [10, 11, 20, 31, 32, 34, 35, 38, 39, 40, 41, 45, 46, 47, 48];
-// Story packs named by the era their props and sky belong to (the game's own story titles for those eras).
-const STORY = { 10: 'Siberia', 11: 'Siberia · Hangar', 20: 'Chicago', 31: 'Atom Smasher', 32: 'Wild West', 34: 'Notre Dame', 35: 'Dam', 38: 'NeoTokyo', 39: 'Spacestation', 40: 'Return to Planet X', 41: 'Robot Factory', 45: 'Hospital', 46: 'Scrapyard', 47: 'Circus', 48: 'Aztec' };
-// Arena names by level number, from the game's own arena table and English text table.
-const THEME = { 10: 'Compound', 11: 'Streets', 13: 'Site', 20: 'Warehouse', 21: 'Chinese', 29: 'Pyramid', 31: 'Atom Smasher', 32: 'Wild West', 33: 'Hangar', 34: 'Notre Dame', 35: 'Dam', 36: 'Ice Station', 38: 'NeoTokyo', 39: 'Spacestation', 40: 'Planet X', 41: 'Robot Factory', 42: 'Mexican Mission', 43: 'Nightclub', 45: 'Hospital', 46: 'Scrapyard', 47: 'Circus', 48: 'Pyramid', 50: 'Ufopia', 55: 'Training Ground', 56: 'Chasm', 64: 'Robot Factory', 65: 'Scrapyard' };
-const SRC = new URLSearchParams(location.search).get('src'); // dev: fetch archives from a local server
+const FRONTEND = 'l_103.pak'; // front-end pack: holds the UI text table
+// Only this site or a loopback dev server may feed archives; anything else in the URL is ignored.
+const okOrigin = s => { try { const u = new URL(s, location.href); return u.origin === location.origin || /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(u.origin); } catch (e) { return false; } };
+const Q = new URLSearchParams(location.search);
+const SRC = okOrigin(Q.get('src') || '') ? Q.get('src') : null; // dev: fetch archives from a local server
+const PACK_URL = okOrigin(Q.get('pack') || '') ? Q.get('pack') : null; // one-time asset pack download
+const NAME_OK = /^(gun|sounds|anim|fe_anim|chr|l_103)\.pak$|^l_\d+_(ar|st)\.pak$|^\d{4}\.mib$/;
 const MUSIC_TRACKS = [...Array(30)].map((_, i) => 1030 + i); // MUSIC1 folder, 1030-1059
+// Private site: the archives sit on this origin under /pack/sundial/<name>, served with ranges by a
+// Pages Function from a private bucket behind the login gate. Detected once at boot.
+const SITE_ROOT = location.pathname.replace(/games\/sundial\/.*$/, '');
+let SITE_PACK = null;
 
 async function fileBuf(name) {
   name = name.toLowerCase();
+  if (!NAME_OK.test(name)) throw new Error(`Unexpected archive name ${name}`);
+  if (SITE_PACK) {
+    const hit = await cache.get(name);
+    if (hit) return hit;
+    status(`Fetching ${name} from this site…`);
+    const r = await fetch(SITE_PACK + name);
+    if (!r.ok) throw new Error(`${r.status} fetching ${name}`);
+    const buf = await r.arrayBuffer();
+    try { await cache.put(name, buf); } catch (e) { /* storage full: still play from memory */ }
+    return buf;
+  }
   if (SRC) {
     let path = name.toUpperCase();
     if (ARENA.test(name)) path = (name.endsWith('_st.pak') ? 'STORY/' : 'ARCADE/') + path;
+    else if (name === FRONTEND) path = 'ARCADE/' + path;
     else if (/^\d{4}\.mib$/.test(name)) { const id = parseInt(name); path = `../MUSIC/MUSIC${id < 1030 ? 0 : id < 1060 ? 1 : 2}/${path}`; }
     const r = await fetch(SRC + path);
     if (!r.ok) throw new Error(`${r.status} fetching ${name}`);
@@ -56,11 +77,20 @@ async function fileBuf(name) {
 
 async function refreshLevelList() {
   const cached = new Set(SRC ? [] : await cache.keys());
-  if (SRC) {
+  if (SRC || SITE_PACK) {
     for (const n of ARENA_IDS) pickedFiles.set(`l_${n}_ar.pak`, true);
     for (const n of STORY_IDS) pickedFiles.set(`l_${n}_st.pak`, true);
     for (const n of NEEDED) pickedFiles.set(n, true);
     for (const n of MUSIC_TRACKS) pickedFiles.set(`${n}.mib`, true);
+    pickedFiles.set(FRONTEND, true);
+  }
+  // UI strings from the player's own front-end pack, when present.
+  if (!text.size && (cached.has(FRONTEND) || pickedFiles.has(FRONTEND))) {
+    try {
+      const fe = new Pak(await fileBuf(FRONTEND), FRONTEND);
+      const strName = fe.list('boss/').find(p => /_e\.str$/.test(p)) || fe.list('boss/').find(p => p.endsWith('.str'));
+      if (strName) { text = new TextTable(fe.get(strName)); setText(text); renderLeague(); }
+    } catch (e) { console.warn('text table', e.message); }
   }
   const names = new Set([...cached, ...pickedFiles.keys()].filter(n => ARENA.test(n)));
   const sel = $('#level');
@@ -69,7 +99,7 @@ async function refreshLevelList() {
   for (const n of sorted) {
     const o = document.createElement('option');
     const [, id, kind] = n.match(ARENA);
-    o.value = n; o.textContent = kind === 'st' ? `Story map: ${STORY[id] || id}` : `${THEME[id] || 'Arena'} (${id})${cached.has(n) ? ' ·cached' : ''}`;
+    o.value = n; o.textContent = kind === 'st' ? `Story map: ${arenaName(id, 'st')}` : `${arenaName(id, 'ar')} (${id})${cached.has(n) ? ' ·cached' : ''}`;
     sel.appendChild(o);
   }
   haveMusic = [...cached, ...pickedFiles.keys()].some(n => /^\d{4}\.mib$/.test(n));
@@ -87,10 +117,67 @@ $('#dir').addEventListener('change', e => {
   status(paks ? `Found ${paks} archives${mibs ? ` and ${mibs} music tracks` : ' (no MUSIC folder, so no music)'}.` : 'No .PAK files in that folder. Pick the folder you copied the disc to.');
   refreshLevelList();
 });
-refreshLevelList();
+
+// ---------- asset pack: 'SNDL' u32 count, then per file u16 nameLen, name, u32 size; bodies follow ----------
+async function importPack(buf, onProgress) {
+  const dv = new DataView(buf), u8 = new Uint8Array(buf);
+  if (String.fromCharCode(u8[0], u8[1], u8[2], u8[3]) !== 'SNDL') throw new Error('Not an asset pack.');
+  const count = dv.getUint32(4, true);
+  if (count > 256) throw new Error('Pack header is not sane.');
+  const dec = new TextDecoder();
+  const entries = []; let p = 8;
+  for (let i = 0; i < count; i++) {
+    if (p + 6 > buf.byteLength) throw new Error('Pack is truncated.');
+    const nl = dv.getUint16(p, true); const name = dec.decode(u8.subarray(p + 2, p + 2 + nl)).toLowerCase(); p += 2 + nl;
+    const size = dv.getUint32(p, true); p += 4;
+    if (!NAME_OK.test(name)) throw new Error(`Pack holds an unexpected file: ${name}`);
+    entries.push({ name, size });
+  }
+  if (entries.reduce((s, e) => s + e.size, 0) + p > buf.byteLength) throw new Error('Pack is truncated.');
+  for (const e of entries) {
+    await cache.put(e.name, buf.slice(p, p + e.size));
+    p += e.size;
+    if (onProgress) onProgress(e.name);
+  }
+  return entries.length;
+}
+$('#packfile').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  status(`Reading ${f.name} (${(f.size / 1e6).toFixed(0)} MB)…`);
+  try { const n = await importPack(await f.arrayBuffer(), name => status(`Stored ${name}`)); status(`${n} files kept in this browser. You will not need the pack again here.`); }
+  catch (err) { status(err.message); }
+  pickedFiles = new Map();
+  refreshLevelList();
+});
+async function fetchPack(url) {
+  status('Downloading asset pack…');
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`${r.status} fetching the pack`);
+  const total = +r.headers.get('content-length') || 0;
+  const reader = r.body.getReader(); const chunks = []; let got = 0;
+  for (;;) { const { done, value } = await reader.read(); if (done) break; chunks.push(value); got += value.length; status(`Downloading asset pack… ${(got / 1e6).toFixed(0)}${total ? ' / ' + (total / 1e6).toFixed(0) : ''} MB`); }
+  const buf = new Uint8Array(got); let o = 0; for (const c of chunks) { buf.set(c, o); o += c.length; }
+  const n = await importPack(buf.buffer, name => status(`Stored ${name}`));
+  status(`${n} files kept in this browser.`);
+  history.replaceState(null, '', location.pathname);
+}
+(async () => {
+  if (!SRC) {
+    // Private site: archives on this origin. A HEAD on the gun pack says whether they are there.
+    try {
+      const base = SITE_ROOT + 'pack/sundial/';
+      const r = await fetch(base + 'gun.pak', { method: 'HEAD' });
+      if (r.ok) { SITE_PACK = base; status('Archives found on this site.'); }
+    } catch (e) { /* not on the private site */ }
+    if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+  }
+  if (PACK_URL && !SRC && !SITE_PACK) { try { const ks = await cache.keys(); if (!ks.includes('gun.pak')) await fetchPack(PACK_URL); } catch (e) { status(e.message); } }
+  refreshLevelList();
+})();
 
 // ---------- engine ----------
 const canvas = $('#gl');
+initTouch(Q.get('touch') === '1');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -149,7 +236,7 @@ addEventListener('contextmenu', e => e.preventDefault());
 let locked = false, noLock = false, dragging = false;
 document.addEventListener('pointerlockchange', () => { locked = document.pointerLockElement === canvas; });
 async function grabMouse() {
-  if (noLock || locked) return;
+  if (noLock || locked || touch.active) return;
   try { await canvas.requestPointerLock(); } catch (e) { noLock = true; msg('HOLD MOUSE BUTTON TO LOOK', 3000); }
 }
 const playing = () => world.group && $('#setup').hidden && !match.over;
@@ -182,7 +269,7 @@ function step(dt) {
   } else {
     fwd.set(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
     right.set(fwd.z, 0, -fwd.x);
-    const crouch = keys.has('ControlLeft') || keys.has('KeyC');
+    const crouch = keys.has('ControlLeft') || keys.has('KeyC') || touch.held.has('crouch');
     player.eye += ((crouch ? 0.9 : 1.5) - player.eye) * Math.min(1, dt * 12);
     const speed = crouch ? 2.6 : keys.has('ShiftLeft') ? 3.2 : 5.5;
     tmp.set(0, 0, 0);
@@ -190,10 +277,17 @@ function step(dt) {
     if (keys.has('KeyS')) tmp.sub(fwd);
     if (keys.has('KeyD')) tmp.add(right);
     if (keys.has('KeyA')) tmp.sub(right);
-    if (tmp.lengthSq()) tmp.normalize().multiplyScalar(speed);
+    if (touch.active) { tmp.addScaledVector(fwd, touch.move.y).addScaledVector(right, touch.move.x); }
+    if (tmp.lengthSq() > 1) tmp.normalize();
+    tmp.multiplyScalar(speed);
     player.vel.x = tmp.x; player.vel.z = tmp.z;
     player.vel.y -= 16 * dt;
-    if (player.grounded && keys.has('Space')) { player.vel.y = 6; player.grounded = false; }
+    if (player.grounded && (keys.has('Space') || touch.held.has('jump'))) { player.vel.y = 6; player.grounded = false; }
+    if (touch.active) {
+      player.yaw -= touch.look.dx * 0.005; player.pitch = Math.max(-1.5, Math.min(1.5, player.pitch - touch.look.dy * 0.005));
+      touch.look.dx = touch.look.dy = 0;
+      for (const k of touch.taps.splice(0)) { if (k === 'next') selectWeapon(player.cur + 1); if (k === 'reload') reload(); if (k === 'board') $('#board').hidden = !$('#board').hidden; if (k === 'fire') fireOnce(); }
+    }
     const move = tmp.clone().multiplyScalar(dt);
     if (move.lengthSq() > 0) {
       const dir = move.clone().normalize();
@@ -220,7 +314,7 @@ function step(dt) {
     player.cool -= dt;
     if (player.reloading > 0) { player.reloading -= dt; if (player.reloading <= 0) finishReload(); }
     const w = curWeapon();
-    if (firing && w && w.def.auto) fireOnce();
+    if ((firing || touch.held.has('fire')) && w && w.def.auto) fireOnce();
   }
 
   camera.position.copy(player.pos); camera.position.y += player.eye;
@@ -614,7 +708,7 @@ async function enter(levelName) {
   const spots = world.itemSpots.length >= 6 ? world.itemSpots : world.nodes;
   world.pickups = new Pickups({ scene, pak, gun: world.gun, texSrc, gunTex: world.gunTex, nodes: spots, sfx, roster: BOT_WEAPONS.concat(['minigun', 'homingrocketlauncher', 'sniperrifle', 'flamethrower', 'electrogun', 'tnt']) });
   world.pickups.place(spots === world.itemSpots ? spots.length : Math.min(24, Math.max(8, Math.floor(world.nodes.length / 6))));
-  world.bots = new Bots({ pak, gun: world.gun, texSrc, gunTex: world.gunTex, pad: world.pad, scene, solid: world.solid, anims, bind, onShoot: onBotShoot, onBotKilled, names: BOT_NAMES.slice().sort(() => Math.random() - 0.5) });
+  world.bots = new Bots({ pak, gun: world.gun, texSrc, gunTex: world.gunTex, pad: world.pad, scene, solid: world.solid, anims, bind, onShoot: onBotShoot, onBotKilled, names: [], text });
   world.bots.spawn(Math.min(parseInt($('#botcount').value) || 4, Math.max(1, world.bots.models.length * 2)));
   world.bots.skill = parseFloat($('#skill').value) || 1;
   world.bots.pickups = world.pickups;
@@ -638,7 +732,7 @@ async function enter(levelName) {
   $('#setup').hidden = true; $('#hud').hidden = false; $('#end').hidden = true;
   status(`${pickedFiles.size || ''} ready.`);
   grabMouse();
-  msg(`${(THEME[n] || 'ARENA ' + n).toUpperCase()}  ·  FIRST TO ${match.limit}`, 3000);
+  msg(`${arenaName(n, levelName.endsWith('_st.pak') ? 'st' : 'ar').toUpperCase()}  ·  FIRST TO ${match.limit}`, 3000);
   playMusic();
   let tris = 0; world.group.traverse(o => { if (o.isMesh) tris += o.geometry.index.count / 3; });
   console.log(`arena ${n}: ${map.sections.length} sections, ${tris} tris, ${map.materials.length} materials, ${world.nodes.length} nav nodes, ${world.bots.list.length} bots, ${world.pickups.list.length} pickups, ${anims ? anims.size : 0} clips`);

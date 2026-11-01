@@ -46,5 +46,18 @@ select{font:16px Arial,sans-serif;padding:8px 10px;background:#1a1e2a;color:#fff
 #league .match[disabled]{opacity:.4;cursor:default}
 #league .match small{color:#889;margin-left:8px}
 #league .match span{display:inline-block;width:22px}
+#touch{position:fixed;inset:0;pointer-events:none;z-index:5;font-family:Impact,sans-serif;letter-spacing:2px;color:#fff;user-select:none;touch-action:none}
+#touch .tz{position:absolute;top:0;bottom:0;width:50%;pointer-events:auto}
+#touch .left{left:0}#touch .right{right:0}
+#touch .stick{position:absolute;left:40px;bottom:40px;width:120px;height:120px;border-radius:50%;background:#fff1;border:2px solid #fff4}
+#touch .knob{position:absolute;left:36px;top:36px;width:48px;height:48px;border-radius:50%;background:#fff6}
+#touch .tb{position:absolute;right:24px;width:64px;height:64px;border-radius:50%;background:#000a;border:2px solid #fff6;display:flex;align-items:center;justify-content:center;font-size:14px;pointer-events:auto}
+#touch .tb.on{background:#3ad6c9aa;color:#000}
+#touch .tb[data-k=fire]{right:28px;bottom:110px;width:88px;height:88px;font-size:18px;border-color:var(--amber)}
+#touch .tb[data-k=jump]{right:130px;bottom:36px}
+#touch .tb[data-k=next]{right:130px;bottom:190px}
+#touch .tb[data-k=reload]{right:28px;bottom:220px}
+#touch .tb[data-k=crouch]{right:28px;bottom:30px}
+#touch .tb[data-k=board]{right:24px;top:70px;width:48px;height:48px;font-size:11px}
 .medal{font-size:26px;letter-spacing:4px;margin-top:8px}
 .medal.gold{color:#ffd24a}.medal.silver{color:#d8dde6}.medal.bronze{color:#d9924a}

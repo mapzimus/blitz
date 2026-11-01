@@ -1,4 +1,4 @@
-// P4CK archive reader (TimeSplitters 2, PS2).
+// P4CK archive reader (PS2).
 //   0x00 'P4CK'   0x04 u32 dirOffset   0x08 u32 dirSize   0x0C u32 0
 //   directory entries, 60 bytes each: char[48] path, u32 offset, u32 size, u32 0
 import { Bin } from './bin.js';

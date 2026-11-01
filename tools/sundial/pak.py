@@ -1,4 +1,4 @@
-"""P4CK archive reader for TimeSplitters 2 (PS2).
+"""P4CK archive reader (PS2).
 
 Layout (little-endian):
   0x00  'P4CK'

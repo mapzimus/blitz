@@ -1,4 +1,4 @@
-// TS2 level geometry (bg/levelNN/levelNN.raw).
+// Level geometry (bg/levelNN/levelNN.raw).
 // Header: u32 matInfoOffset, u32 sectionIndexOffset, u32 dataStart, u32 doorsOffset.
 import { Bin } from './bin.js';
 import { readMatInfos, readMeshInfo, readSubMesh, MESHINFO_SIZE } from './mesh.js';

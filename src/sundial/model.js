@@ -1,4 +1,4 @@
-// TS2 object model (ob/**/*.raw). Header: u32 matInfoOffset, u32 meshInfoOffset.
+// Object model (ob/**/*.raw). Header: u32 matInfoOffset, u32 meshInfoOffset.
 // Mesh info blocks sit immediately BEFORE meshInfoOffset; meshInfoOffset itself holds the count and scale.
 import { Bin } from './bin.js';
 import { readMatInfos, readMeshInfo, readSubMesh, MESHINFO_SIZE, MAT_EMBEDDED } from './mesh.js';

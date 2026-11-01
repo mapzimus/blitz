@@ -1,4 +1,4 @@
-// TS2 animation files (anim/data/ts2/*.raw, magic "ANR10").
+// Animation files (anim/data/ts2/*.raw, magic "ANR10").
 //   0x30 u32 unk, u32 totalFrames, u32 numKeys, u32 numBones
 //   0x58 u32 keyFrame[numKeys]            frame index of each key
 //   then numBones tracks of 32 bytes: u32 unk, u32 flags, f32 numFrames, u32 numKeys, 16 pad

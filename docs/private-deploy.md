@@ -66,3 +66,17 @@ Every later code change: `node tools/deploy-private.mjs`. The archive never chan
 Open the same URL on the phone, log in once (Access remembers the session), and the game
 loads from the site. On-screen controls appear automatically on touch devices; a Bluetooth
 controller also works in Chrome on Android.
+
+## SUNDIAL door (the other game)
+
+Same bucket, same gate. Its archives are flat keys under `sundial/` and the page finds them on
+its own origin at `/pack/sundial/<name>` (HEAD on `gun.pak` at boot), then keeps each one in the
+browser after the first fetch. Upload after step 3 is confirmed:
+
+```bash
+powershell -File tools/sundial/upload-r2.ps1 -Disc "<folder you copied the disc to>"
+```
+
+That puts `gun.pak`, `sounds.pak`, `anim.pak`, `fe_anim.pak`, `l_103.pak` (UI text), every
+`l_NN_ar.pak` and `l_NN_st.pak`, and the `MUSIC1` tracks (`NNNN.mib`) under `sundial/`, about
+1.1 GB. Add `-Chr` to include `chr.pak` for the viewer page. Keys are lowercase.

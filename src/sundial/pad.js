@@ -1,4 +1,4 @@
-// TS2 PAD file (pad/data/levelNN.raw): AI waypoint graph plus "extra" nodes (spawns, pickups, cameras).
+// PAD file (pad/data/levelNN.raw): AI waypoint graph plus "extra" nodes (spawns, pickups, cameras).
 // Header: u32 id, u32 nodeCount, u32 linkCount. Node 32 bytes. Link 20 bytes. Then u32 extraCount + nodes.
 import { Bin } from './bin.js';
 

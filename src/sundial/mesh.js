@@ -1,5 +1,5 @@
-// Shared TS2 mesh structures used by both object models (ob/**/*.raw) and level maps (bg/**/*.raw).
-// Layout follows the format notes published by the TS-ReSplit project (MIT, Goomii), verified on disc.
+// Shared mesh structures used by both object models (ob/**/*.raw) and level maps (bg/**/*.raw).
+// Layout follows public format notes (MIT) and was verified against the disc.
 
 export const MAT_EMBEDDED = 0x10000000; // material ID is an offset to a texture inside this file
 export const MESHINFO_SIZE = 144;

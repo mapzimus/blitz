@@ -5,7 +5,7 @@ import { createServer } from 'node:http';
 import { createReadStream, statSync } from 'node:fs';
 import { join, extname, normalize, resolve, relative, isAbsolute } from 'node:path';
 
-const disc = resolve(process.argv[2] || 'C:/Users/mhowe/Downloads/ts2_disc');
+const disc = resolve(process.argv[2] || 'C:/disc');
 const port = Number(process.argv[3] || 8766);
 const repo = resolve(new URL('../..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.pak': 'application/octet-stream' };

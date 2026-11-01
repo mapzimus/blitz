@@ -1,4 +1,4 @@
-// TS2 PS2 texture: 16-byte header (magic, flags, width, height), 256 x RGBA palette, width*height 8-bit indices.
+// PS2 texture: 16-byte header (magic, flags, width, height), 256 x RGBA palette, width*height 8-bit indices.
 // The palette is CLUT-swizzled: bits 3 and 4 of the palette index are swapped. Alpha 0x80 means opaque.
 import { Bin } from './bin.js';
 

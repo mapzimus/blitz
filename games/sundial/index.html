@@ -34,13 +34,14 @@
   <h1>S<span>UNDIAL</span></h1>
   <p class="tag">BRING YOUR OWN DISC</p>
   <div class="panel">
-    <p>This page ships no game data. It reads the archives straight off <b>your own copy</b> of the disc, in your browser, and keeps them in this browser only.</p>
+    <p>On the private site the archives load from the site itself and nothing needs picking. Elsewhere this page ships no game data: load it once from <b>your own copy</b> (an asset pack file, or the disc folder) and it stays in this browser.</p>
     <ol>
-      <li>Copy your disc to a folder (for example <code>Downloads\ts2_disc</code>).</li>
-      <li>Click below and pick that folder (it holds <code>PAK</code> and <code>MUSIC</code>). Picking just <code>PAK</code> works too, without music.</li>
-      <li>Pick an arena. Click the screen to grab the mouse. <b>WASD</b> move, <b>mouse</b> look, <b>click</b> fire, <b>wheel / 1-9</b> switch weapon, <b>R</b> reload, <b>right-click</b> zoom, <b>Space</b> jump, <b>Ctrl</b> crouch, <b>M</b> next track, <b>Tab</b> scores, <b>Esc</b> release.</li>
+      <li>Pick a mode and arena, then ENTER. Click the screen to grab the mouse.</li>
+      <li><b>WASD</b> move, <b>mouse</b> look, <b>click</b> fire, <b>wheel / 1-9</b> switch weapon, <b>R</b> reload, <b>right-click</b> zoom, <b>Space</b> jump, <b>Ctrl</b> crouch, <b>M</b> next track, <b>Tab</b> scores, <b>Esc</b> release. On a phone the on-screen controls appear by themselves.</li>
     </ol>
     <div class="row">
+      <label class="btn" for="packfile">LOAD ASSET PACK</label>
+      <input id="packfile" type="file" accept=".pack" hidden>
       <label class="btn" for="dir">PICK DISC FOLDER</label>
       <input id="dir" type="file" webkitdirectory directory multiple hidden>
       <span id="dirstatus" class="fine">Nothing loaded yet.</span>

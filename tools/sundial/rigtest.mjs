@@ -4,7 +4,7 @@ import { parseModel } from 'file:///D:/REPOS/blitz/src/sundial/model.js';
 import { parseAnim } from 'file:///D:/REPOS/blitz/src/sundial/anim.js';
 import { makeBind, assignParts, HUMAN } from 'file:///D:/REPOS/blitz/src/sundial/skeleton.js';
 const load = p => { const b = readFileSync(p); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength); };
-const D = 'C:/Users/mhowe/Downloads/ts2_disc/PAK/';
+const D = 'C:/disc/PAK/';
 const fe = new Pak(load(D + 'FE_ANIM.PAK')), an = new Pak(load(D + 'ANIM.PAK')), chr = new Pak(load(D + 'CHR.PAK'));
 const bindAnim = parseAnim(fe.get('anim/data/ts2/human_19_bindpose.raw'));
 const bind = makeBind(bindAnim);

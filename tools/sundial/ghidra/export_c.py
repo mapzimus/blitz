@@ -14,7 +14,7 @@ from ghidra.app.util.exporter import CppExporter
 from java.io import File
 
 t0 = time.time()
-with pyghidra.open_program(elf, project_location=proj_dir, project_name='ts2', analyze=True,
+with pyghidra.open_program(elf, project_location=proj_dir, project_name='game', analyze=True,
                            language='r5900:LE:32:default') as flat:
     prog = flat.getCurrentProgram()
     print('analyzed', prog.getName(), 'functions', prog.getFunctionManager().getFunctionCount(), 'in', round(time.time() - t0), 's')

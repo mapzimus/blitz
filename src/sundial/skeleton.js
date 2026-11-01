@@ -1,4 +1,4 @@
-// The 19-bone humanoid skeleton used by every TS2 character, and a rig that drives a
+// The 19-bone humanoid skeleton used by every character, and a rig that drives a
 // part-based character model with it. Parts are rigid; each follows one bone.
 import * as THREE from 'three';
 

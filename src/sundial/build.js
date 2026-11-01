@@ -1,4 +1,4 @@
-// Turn parsed TS2 data into three.js objects.
+// Turn parsed disc data into three.js objects.
 import * as THREE from 'three';
 import { decodeTexture } from './texture.js';
 import { texPath } from './pak.js';
