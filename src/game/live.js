@@ -80,6 +80,13 @@ function humanIntent(g, e, inp, presnap) {
   if (m.mag > 0) { m.dx /= m.mag; m.dy /= m.mag; }
   if (presnap) return e.team === g.poss ? { dx: 0, dy: 0, mag: 0 } : m;
   const offense = e.team === g.poss;
+  // Assist: with the stick centered, a return man or the targeted receiver tracks the ball himself.
+  const b = g.ball;
+  if (m.mag < 0.1 && !e.hasBall && ((b.inAir && (b.target === e.idx || e.task === 'return')) || (b.loose && e.task === 'return'))) {
+    const tx = b.inAir ? b.landX : b.x, ty = b.inAir ? b.landY : b.y;
+    const dx = tx - e.x, dy = ty - e.y, d = Math.hypot(dx, dy) || 1;
+    if (d > 0.4) { m.dx = dx / d; m.dy = dy / d; m.mag = 1; m.turbo = true; }
+  }
   if (offense) {
     if (e.hasBall) {
       if (e.role === 'QB' && !g.handedOff && g.playType === 'pass') {
@@ -322,9 +329,10 @@ function resolveBlocks(g, off, def, dt) {
       continue;
     }
     const [d, dd] = nearest(def, o.x, o.y, x => x.state !== 'down' && x.blocked <= 0 && !x.hasBall && x.state !== 'jump');
-    if (d && dd < 1.6) {
+    const passPro = g.playType === 'pass' && !g.handedOff && !g.caught;
+    if (d && dd < (passPro ? 2.3 : 1.6)) {
       const r = Math.random();
-      const win = r < 0.72 * o.pow / d.pow;
+      const win = r < (passPro ? 0.85 : 0.72) * o.pow / d.pow;
       if (win) { o.engaged = d.idx; o.engT = 1.2 + Math.random() * 1.6; d.blocked = 0.1; }
       else if (r > 0.92) { setState(o, 'down', 1.0); }         // pancaked
       else { o.shaken = 0.5; o.blocked = 0.4; }                 // beaten, slowed a beat

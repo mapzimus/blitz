@@ -44,7 +44,7 @@ function menu(items) {
   const go = () => { if (!items[sel].disabled) { cleanup(); items[sel].run(); } };
   const step = d => { for (let n = 0; n < items.length; n++) { sel = (sel + d + items.length) % items.length; if (!items[sel].disabled) break; } draw(); };
   const key = e => { if (e.code === 'ArrowUp' || e.code === 'KeyW') step(-1); else if (e.code === 'ArrowDown' || e.code === 'KeyS') step(1); else if (e.code === 'Enter' || e.code === 'Space' || e.code === 'KeyJ') { e.preventDefault(); go(); } };
-  let padV = false; const pad = () => { const r = input.poll(0); if (Math.abs(r.my) > 0.5 && !padV) step(r.my > 0 ? 1 : -1); padV = Math.abs(r.my) > 0.5; if (r.f[0] || r.start) go(); input.endFrame(); wrap._raf = requestAnimationFrame(pad); };
+  let padV = false; const pad = () => { const r = input.poll(0, { keyboard: false }); if (Math.abs(r.my) > 0.5 && !padV) step(r.my > 0 ? 1 : -1); padV = Math.abs(r.my) > 0.5; if (r.f[0] || r.start) go(); wrap._raf = requestAnimationFrame(pad); };
   const cleanup = () => { window.removeEventListener('keydown', key); cancelAnimationFrame(wrap._raf); };
   window.addEventListener('keydown', key); wrap._raf = requestAnimationFrame(pad);
   draw(); return wrap;
@@ -113,7 +113,7 @@ function teamSelect(players) {
     startGame(picks, [true, players === 2]);
   };
   let padH = false, padV = false;
-  const pad = () => { const r = input.poll(picks.length === 1 && players === 2 ? 1 : 0); const n = TEAMS.length; if (Math.abs(r.mx) > 0.5 && !padH) { sel = (sel + (r.mx > 0 ? 1 : n - 1)) % n; draw(); } if (Math.abs(r.my) > 0.5 && !padV) { sel = (sel + (r.my > 0 ? 8 : n - 8)) % n; draw(); } padH = Math.abs(r.mx) > 0.5; padV = Math.abs(r.my) > 0.5; if (r.f[0]) choose(); input.endFrame(); s._raf = requestAnimationFrame(pad); };
+  const pad = () => { const r = input.poll(picks.length === 1 && players === 2 ? 1 : 0, { keyboard: false }); const n = TEAMS.length; if (Math.abs(r.mx) > 0.5 && !padH) { sel = (sel + (r.mx > 0 ? 1 : n - 1)) % n; draw(); } if (Math.abs(r.my) > 0.5 && !padV) { sel = (sel + (r.my > 0 ? 8 : n - 8)) % n; draw(); } padH = Math.abs(r.mx) > 0.5; padV = Math.abs(r.my) > 0.5; if (r.f[0]) choose(); s._raf = requestAnimationFrame(pad); };
   window.addEventListener('keydown', key); s._raf = requestAnimationFrame(pad); draw();
 }
 
@@ -121,6 +121,7 @@ function teamSelect(players) {
 async function startGame(teamIds, human) {
   overlay.innerHTML = '';
   game = new Game({ rules, teams: teamIds, human });
+  window.__game = game;                    // for console debugging
   if (assets.ready) applyRosters(game);
   scene.build(game.teams);
   hud.setTeams(game.teams);
@@ -213,12 +214,11 @@ function uiState(raws) {
     const box = pickBox[t];
     if (box && box._kind !== want) { box.remove(); pickBox[t] = null; }
     if (want && !pickBox[t]) {
-      const b = want === 'play' ? hud.playcall(game, t, pick => { pickBox[t] = null; game.choosePlay(t, pick); }) : hud.patChoice(game, t, c => { pickBox[t] = null; game.choosePat(t, c); });
+      const b = want === 'play' ? hud.playcall(game, t, pick => { pickBox[t] = null; input.pressed.clear(); game.choosePlay(t, pick); }) : hud.patChoice(game, t, c => { pickBox[t] = null; input.pressed.clear(); game.choosePat(t, c); });
       b._kind = want; pickBox[t] = b;
       if (slot === 1) b.style.transform = 'translateY(-10px)';
     }
-    if (pickBox[t] && pickBox[t]._pad && slot === 1) pickBox[t]._pad(raws[slot]);
-    if (pickBox[t] && pickBox[t]._pad && slot === 0 && navigator.getGamepads && [...navigator.getGamepads()].some(Boolean)) pickBox[t]._pad(raws[slot]);
+    if (pickBox[t] && pickBox[t]._pad && input.hasPad(slot)) pickBox[t]._pad(input.poll(slot, { keyboard: false }));
   }
 }
 

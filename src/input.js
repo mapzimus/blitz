@@ -13,10 +13,10 @@ export class Input {
   }
 
   // Raw state for player slot (0 or 1). Keyboard always feeds slot 0; gamepads attach to free slots.
-  poll(slot) {
+  poll(slot, { pad = true, keyboard = true } = {}) {
     const r = { mx: 0, my: 0, turbo: false, f: [false, false, false, false], fh: [false, false, false, false], d: [false, false, false, false], sw: false, start: false, any: false };
     const k = this.keys, p = this.pressed;
-    if (slot === 0) {
+    if (slot === 0 && keyboard) {
       if (k.has('ArrowLeft') || k.has('KeyA')) r.mx -= 1;
       if (k.has('ArrowRight') || k.has('KeyD')) r.mx += 1;
       if (k.has('ArrowUp') || k.has('KeyW')) r.my -= 1;
@@ -32,8 +32,9 @@ export class Input {
     // gamepads
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
     const live = [...pads].filter(g => g && g.connected);
-    const pad = live[slot];
-    if (pad) {
+    const padDev = pad ? live[slot] : null;
+    if (padDev) {
+      const pad = padDev;
       const dz = v => (Math.abs(v) < 0.2 ? 0 : v);
       let mx = dz(pad.axes[0] || 0), my = dz(pad.axes[1] || 0);
       const b = i => !!(pad.buttons[i] && pad.buttons[i].pressed);
@@ -51,5 +52,6 @@ export class Input {
     r.any = r.f.some(Boolean) || r.d.some(Boolean) || r.start;
     return r;
   }
+  hasPad(slot) { const pads = navigator.getGamepads ? [...navigator.getGamepads()].filter(g => g && g.connected) : []; return !!pads[slot]; }
   endFrame() { this.pressed.clear(); }
 }
