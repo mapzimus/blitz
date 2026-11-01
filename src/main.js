@@ -25,12 +25,23 @@ const DIFFS = [['EASY', 0.88], ['NORMAL', 1], ['HARD', 1.08], ['BLITZ', 1.16]];
 let diff = 1; try { diff = Math.min(DIFFS.length - 1, Math.max(0, parseInt(localStorage.getItem(DIFF_KEY) ?? '1', 10) || 0)); } catch { diff = 1; }
 const RULES_KEY = `${cfg.code}.rules`;
 const getKnob = (r, k) => k.startsWith('points.') ? r.points[k.slice(7)] : r[k];
+// Cheat codes (both doors), saved per browser. Renderer ones go to the scene, the rest ride on the rules.
+const CODES_KEY = `${cfg.code}.codes`;
+const CODES = [
+  { k: 'bigHeads', label: 'BIG HEADS' }, { k: 'tiny', label: 'TINY PLAYERS' }, { k: 'night', label: 'NIGHT GAME' },
+  { k: 'superTurbo', label: 'SUPER TURBO' }, { k: 'noFumbles', label: 'NO FUMBLES' }, { k: 'allFire', label: 'EVERYONE ON FIRE' },
+];
+let codes = {}; try { codes = JSON.parse(localStorage.getItem(CODES_KEY) || '{}') || {}; } catch { codes = {}; }
 function loadRules() {
   const base = VARIANTS[cfg.variant] || RULES;
-  if (cfg.variant !== 'house') return { ...base, cpuSkill: DIFFS[diff][1] };
-  let o = {}; try { o = JSON.parse(localStorage.getItem(RULES_KEY) || '{}') || {}; } catch { o = {}; }
   const r = { ...base, points: { ...base.points } };
-  for (const [k, v] of Object.entries(o)) { if (k.startsWith('points.')) r.points[k.slice(7)] = v; else if (k in r) r[k] = v; }
+  if (cfg.variant === 'house') {
+    let o = {}; try { o = JSON.parse(localStorage.getItem(RULES_KEY) || '{}') || {}; } catch { o = {}; }
+    for (const [k, v] of Object.entries(o)) { if (k.startsWith('points.')) r.points[k.slice(7)] = v; else if (k in r) r[k] = v; }
+  }
+  if (codes.superTurbo) r.turboDrain = 0;
+  if (codes.noFumbles) r.fumbles = false;
+  if (codes.allFire) r.alwaysFire = true;
   r.cpuSkill = DIFFS[diff][1];
   return r;
 }
@@ -66,6 +77,23 @@ let game = null, running = false, paused = false, last = 0, acc = 0;
 let slotTeam = [0, 1];               // input slot -> team index
 let icons = [false, false];
 let pickBox = [null, null];
+// Instant replay: the last seconds of a scoring play, recorded once per frame while the ball is live.
+const REPLAY_FRAMES = 200, REPLAY_SPEED = 0.6;
+let ring = [], pendingReplay = null, replay = null;
+function recordFrame() {
+  const g = game;
+  if (g.phase === PHASE.PRESNAP || g.phase === PHASE.KICKOFF) { ring.length = 0; return; }
+  if (g.phase !== PHASE.LIVE) return;
+  ring.push({
+    ents: g.ents.map(t => t.map(e => ({ x: e.x, y: e.y, z: e.z, vx: e.vx, vy: e.vy, face: e.face, state: e.state, st: e.st, hasBall: e.hasBall, team: e.team, idx: e.idx, role: e.role, name: e.name, num: e.num, task: e.task, turbo: e.turbo, turboOn: e.turboOn, engaged: e.engaged, blocked: e.blocked, burstT: e.burstT }))),
+    ball: { ...g.ball }, fire: g.fire.slice(), poss: g.poss, los: g.los, firstDownX: g.firstDownX,
+  });
+  if (ring.length > REPLAY_FRAMES) ring.shift();
+}
+function replayProxy(f) {
+  return { ents: f.ents, ball: f.ball, fire: f.fire, poss: f.poss, dir: game.dir, human: [false, false], ctrl: game.ctrl, phase: PHASE.LIVE, special: null, los: f.los, firstDownX: f.firstDownX, teams: game.teams, replay: true, scorer: null, deadReason: '',
+    goalLineFor: t => game.goalLineFor(t), carrier() { const h = f.ball.holder; return h ? f.ents[h.team][h.idx] : null; } };
+}
 let assetStatus = 'no disc data loaded · placeholder look, no sound';
 
 // ---------- screens ----------
@@ -94,6 +122,7 @@ function title() {
     { label: '2 PLAYER', run: () => teamSelect(2) },
     { label: 'WATCH CPU DEMO', run: () => { seasonGame = null; startGame([5, 9], [false, false]); } },
     { label: season.active ? 'CONTINUE SEASON' : 'SEASON', run: () => seasonScreen() },
+    { label: 'CODES' + (CODES.some(c => codes[c.k]) ? ' ✓' : ''), run: () => codesScreen() },
     { label: 'CPU: ' + DIFFS[diff][0], run: () => { diff = (diff + 1) % DIFFS.length; try { localStorage.setItem(DIFF_KEY, String(diff)); } catch { /* session only */ } rules = loadRules(); title(); } },
     ...(cfg.variant === 'house' ? [{ label: 'HOUSE RULES', run: () => rulesEditor() }] : []),
     { label: assets.ready ? 'DISC DATA LOADED ✓' : (assets.canResume ? 'RESUME DISC DATA' : 'LOAD DISC DATA'), run: () => (assets.canResume && !assets.ready ? resumeDisc() : loadDisc()) },
@@ -183,6 +212,32 @@ function rulesEditor() {
   window.addEventListener('keydown', key); s._raf = requestAnimationFrame(pad); draw();
 }
 
+// ---------- cheat codes ----------
+function codesScreen() {
+  const s = screen(`<h2>CODES</h2><p class="small">Tap a row to flip it. Saved in this browser.</p>`);
+  const list = document.createElement('div'); list.className = 'rules'; s.appendChild(list);
+  const items = [...CODES, { k: null, label: 'DONE' }];
+  const rows = items.map(it => { const d = document.createElement('div'); d.className = 'row' + (it.k ? '' : ' act'); d.innerHTML = `<span class="lbl">${esc(it.label)}</span>` + (it.k ? '<span class="val"></span>' : ''); list.appendChild(d); return d; });
+  let sel = 0; const n = items.length;
+  const draw = () => rows.forEach((d, i) => { d.classList.toggle('sel', i === sel); const it = items[i]; if (it.k) { d.querySelector('.val').textContent = codes[it.k] ? 'ON' : 'OFF'; d.classList.toggle('changed', !!codes[it.k]); } });
+  const cleanup = () => { window.removeEventListener('keydown', key); cancelAnimationFrame(s._raf); };
+  const go = () => { const it = items[sel]; if (!it.k) { cleanup(); title(); return; } codes[it.k] = !codes[it.k]; if (!codes[it.k]) delete codes[it.k]; try { localStorage.setItem(CODES_KEY, JSON.stringify(codes)); } catch { /* session only */ } rules = loadRules(); draw(); };
+  rows.forEach((d, i) => { d.onclick = () => { sel = i; go(); }; d.onmouseenter = () => { sel = i; draw(); }; });
+  const key = e => {
+    if (e.code === 'ArrowUp' || e.code === 'KeyW') sel = (sel + n - 1) % n; else if (e.code === 'ArrowDown' || e.code === 'KeyS') sel = (sel + 1) % n;
+    else if (e.code === 'Enter' || e.code === 'Space' || e.code === 'KeyJ' || e.code === 'ArrowLeft' || e.code === 'ArrowRight') go(); else if (e.code === 'Escape') { cleanup(); title(); return; } else return;
+    e.preventDefault(); if (s.isConnected) draw();
+  };
+  let pv = false;
+  const pad = () => {
+    const r = input.poll(0, { keyboard: false }); touch.apply(r);
+    if (Math.abs(r.my) > 0.5 && !pv) { sel = (sel + (r.my > 0 ? 1 : n - 1)) % n; draw(); } pv = Math.abs(r.my) > 0.5;
+    if (r.f[0]) go(); else if (r.f[1] || r.start) { cleanup(); title(); }
+    if (s.isConnected) s._raf = requestAnimationFrame(pad);
+  };
+  window.addEventListener('keydown', key); s._raf = requestAnimationFrame(pad); draw();
+}
+
 // ---------- season ----------
 function seasonScreen() {
   if (!season.active) { teamSelect(1, id => { season.start(id); seasonScreen(); }); return; }
@@ -194,7 +249,9 @@ function seasonScreen() {
   const m = x => x ? `<div>${ab(x[0])} vs ${ab(x[1])} ${x[2] != null ? '<b>' + ab(x[2]) + '</b>' : ''}</div>` : '';
   const po = st.playoffs ? `<div class="hd">PLAYOFFS</div>${m(st.playoffs.semis[0])}${m(st.playoffs.semis[1])}${st.playoffs.final ? '<div class="hd">FINAL</div>' + m(st.playoffs.final) : ''}` : '';
   const stand = season.standings().slice(0, 10).map((r, i) => `<div class="${r.id === st.team ? 'me' : ''}">${i + 1}. ${ab(r.id)} ${r.w}-${r.l}</div>`).join('');
-  cols.innerHTML = `<div><div class="hd">SCHEDULE</div>${sched}${po}</div><div><div class="hd">STANDINGS</div>${stand}</div>`;
+  const ld = (label, key, unit) => { const L = season.leader(key); return L ? `<div>${label} <b>${esc(L.name)}</b> ${ab(L.team)} · ${Math.round(L[key])}${unit}</div>` : ''; };
+  const leaders = ld('PASS', 'passYds', ' YDS') + ld('RUSH', 'rushYds', ' YDS') + ld('REC', 'recYds', ' YDS') + ld('TD', 'td', '') + ld('TACKLES', 'tackles', '');
+  cols.innerHTML = `<div><div class="hd">SCHEDULE</div>${sched}${po}</div><div><div class="hd">STANDINGS</div>${stand}</div>` + (leaders ? `<div><div class="hd">LEADERS</div>${leaders}</div>` : '');
   s.appendChild(cols);
   const items = [];
   if (nx) items.push({ label: `PLAY ${nx.label}: ${nx.ids.map(ab).join(' VS ')}`, run: () => { seasonGame = nx; startGame(nx.ids, nx.human); } });
@@ -243,9 +300,11 @@ function teamSelect(players, single = null) {
 async function startGame(teamIds, human) {
   overlay.innerHTML = '';
   game = new Game({ rules, teams: teamIds, human });
+  ring.length = 0; pendingReplay = null; replay = null;
+  scene.codes = { bigHeads: !!codes.bigHeads, tiny: !!codes.tiny, night: !!codes.night };
   window.__game = game; window.__scene = scene; window.__assets = assets;   // for console debugging
   if (assets.ready) applyRosters(game);
-  scene.build(game.teams);
+  scene.build(game.teams); scene.applyCodes();
   hud.setTeams(game.teams);
   if (assets.ready) scene.useAssets(assets);
   hudEl.style.visibility = 'visible'; touch.show(true);
@@ -279,12 +338,20 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.1, (now - last) / 1000); last = now;
   const raws = [input.poll(0), input.poll(1)];
+  if (replay) {   // the sim waits during the replay; A or Start skips it
+    if (raws[0].start || raws[1].start || raws[0].f[0] || raws[1].f[0]) replay = null;
+    else { replay.i += dt * 60 * REPLAY_SPEED; if (replay.i >= replay.frames.length) replay = null; }
+    if (replay) { input.endFrame(); scene.update(replayProxy(replay.frames[replay.i | 0]), dt * REPLAY_SPEED); hud.update(game, dt, false); return; }
+    input.pressed.clear();
+  }
   if (raws[0].start || raws[1].start) togglePause();
   if (!paused) {
     acc += dt;
     let steps = 0;
     while (acc >= TICK && steps < 5) { feedInputs(raws, steps === 0); game.tick(TICK); acc -= TICK; steps++; }
+    if (steps) recordFrame();
     drain();
+    if (pendingReplay && game.phase === PHASE.PAT_CHOICE) { replay = { frames: pendingReplay, i: 0 }; pendingReplay = null; hud.showBanner('INSTANT REPLAY', 'A TO SKIP'); }
     uiState(raws);
   }
   input.endFrame();
@@ -325,6 +392,7 @@ function drain() {
   for (const ev of game.events.splice(0)) {
     if (ev.type === 'banner') hud.showBanner(ev.text, ev.sub);
     if (ev.type === 'final') setTimeout(finalScreen, 2500);
+    if (ev.type === 'sound' && ev.name === 'touchdown' && ring.length > 40) pendingReplay = ring.slice(-REPLAY_FRAMES);
     if (ev.type === 'sound') { if (ev.name === 'bighit') scene.shake = 0.6; else if (ev.name === 'hit') scene.shake = 0.2; else if (ev.name === 'touchdown') scene.shake = 0.25; }
     sound.onEvent(ev, game);
   }
@@ -335,7 +403,7 @@ function uiState(raws) {
   for (let slot = 0; slot < 2; slot++) {
     const t = slotTeam[slot]; if (!game.human[t]) continue;
     const want = game.phase === PHASE.PLAYCALL && (t === game.poss ? game.offPick === null : game.defPick === null) ? 'play'
-      : game.phase === PHASE.PAT_CHOICE && t === game.poss ? 'pat' : null;
+      : game.phase === PHASE.PAT_CHOICE && t === game.poss && !replay ? 'pat' : null;
     const box = pickBox[t];
     if (box && box._kind !== want) { box.remove(); pickBox[t] = null; }
     if (want && !pickBox[t]) {
@@ -379,7 +447,7 @@ function finalScreen() {
   s.appendChild(box);
   const ids = game.teams.map(t => t.id), hum = game.human.slice();
   if (seasonGame) {
-    season.record(seasonGame.ids, game.score.slice()); seasonGame = null;
+    season.record(seasonGame.ids, game.score.slice(), game.stats); seasonGame = null;
     s.appendChild(menu([{ label: 'CONTINUE SEASON', run: () => seasonScreen() }, { label: 'TITLE', run: () => title() }]));
     return;
   }

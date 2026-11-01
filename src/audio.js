@@ -68,11 +68,11 @@ export class Sound {
           case 'incomplete': this.say('cc_after_pass_dropped'); break;
           case 'throw': fx('throw'); break;
           case 'kick': fx('kick'); break;
-          case 'touchdown': this.play('touchdown', { gain: 0.8 }); this.say('cc_touchdown', true); break;
-          case 'fgood': this.play('fldgoal', { gain: 0.8 }); this.say('cc_Kick_is_good', true); break;
+          case 'touchdown': this.play('touchdown', { gain: 0.8 }); this.play(this.pick('crwdcheer'), { gain: 0.7 }); this.say('cc_touchdown', true); break;
+          case 'fgood': this.play('fldgoal', { gain: 0.8 }); this.play(this.pick('crwdcheer'), { gain: 0.5 }); this.say('cc_Kick_is_good', true); break;
           case 'doink': this.play('doink1'); this.say('cc_kick_missed', true); break;
-          case 'pick': this.say('cc_after_turnover', true); break;
-          case 'fumble': this.say('cc_fumble', true); break;
+          case 'pick': this.play(this.pick('crwdboo'), { gain: 0.6 }); this.say('cc_after_turnover', true); break;
+          case 'fumble': this.play(this.pick('crwdboo'), { gain: 0.6 }); this.say('cc_fumble', true); break;
           case 'fire': this.play('ctchfire', { gain: 1 }); this.say('cc_on_fire', true); break;
         }
         break;

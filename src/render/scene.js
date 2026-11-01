@@ -35,13 +35,28 @@ export class Scene {
   }
 
   lights() {
-    this.scene.add(new THREE.HemisphereLight(0xcfd8ff, 0x203018, 0.75));
-    const sun = new THREE.DirectionalLight(0xfff2dd, 1.6);
+    this.hemi = new THREE.HemisphereLight(0xcfd8ff, 0x203018, 0.75); this.scene.add(this.hemi);
+    const sun = this.sun = new THREE.DirectionalLight(0xfff2dd, 1.6);
     sun.position.set(50, 80, -40); sun.target.position.set(50, 0, 26); this.scene.add(sun.target);
     sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03;
     const c = sun.shadow.camera; c.left = -70; c.right = 70; c.top = 40; c.bottom = -40; c.near = 10; c.far = 200;
     this.scene.add(sun);
-    const fill = new THREE.DirectionalLight(0x8fb0ff, 0.5); fill.position.set(50, 40, 90); this.scene.add(fill);
+    const fill = this.fill = new THREE.DirectionalLight(0x8fb0ff, 0.5); fill.position.set(50, 40, 90); this.scene.add(fill);
+  }
+
+  // Cheat codes that live in the renderer: big heads, tiny players, night game.
+  applyCodes() {
+    const c = this.codes || {};
+    const big = c.bigHeads ? 1.9 : 1, tiny = c.tiny ? 0.62 : 1;
+    for (const rigs of this.rigs) for (const rig of rigs) { const hb = rig.bones[rig.kit.frameOfId[2]]; if (hb) hb.scale.setScalar(big); rig.root.scale.setScalar(tiny); }
+    for (const ps of this.players) for (const p of ps) p.group.scale.setScalar(tiny);
+    this.setNight(!!c.night);
+  }
+  setNight(on) {
+    this.night = on;
+    if (on) { this.hemi.color.setHex(0x2a3a5a); this.hemi.groundColor.setHex(0x0a0c10); this.hemi.intensity = 0.5; this.sun.color.setHex(0xe8f0ff); this.sun.intensity = 1.2; this.fill.intensity = 0.15; }
+    else { this.hemi.color.setHex(0xcfd8ff); this.hemi.groundColor.setHex(0x203018); this.hemi.intensity = this.assetsOn ? 1.0 : 0.75; this.sun.color.setHex(0xfff2dd); this.sun.intensity = 1.6; this.fill.intensity = 0.5; }
+    if (this.assetRoot) this.assetRoot.traverse(o => { if (o.isMesh && o.material && o.material.userData.unlit) o.material.color.setHex(on ? 0x4a5670 : 0xffffff); });
   }
 
   // ---------- static world ----------
@@ -111,8 +126,8 @@ export class Scene {
         for (const p of this.players[t]) p.group.visible = false;
       }
       if (this.world) { for (const o of this.world.children) if (o.userData.drawn) o.visible = false; }
-      this.scene.children.filter(o => o.isHemisphereLight).forEach(l => { l.intensity = 1.0; });   // let the sun do the shaping; grass now takes shadows
       this.assetsOn = true;
+      this.applyCodes();   // lights (hemisphere 1.0 by day so the sun shapes the models), big heads, tiny, night
     } catch (e) { console.error('useAssets failed', e); }
   }
 
@@ -176,6 +191,14 @@ export class Scene {
       fx = g.los + dir * 10; fy = FIELD.mid; px = g.los - dir * 26; py = FIELD.mid; ph = 22;
     } else if (g.phase === PHASE.KICKOFF) {
       fx = g.los + dir * 20; fy = FIELD.mid; px = g.los - dir * 24; py = FIELD.mid; ph = 16;
+    } else if (g.replay) {
+      // instant replay: low reverse-angle sideline camera that tracks the ball
+      const c = g.carrier(); const tx = c ? c.x : b.x, ty = c ? c.y : b.y;
+      fx = tx; fy = ty; px = tx - dir * 5; py = ty + (ty < FIELD.mid ? 15 : -15); ph = 3.2; lh = 1.0;
+    } else if (g.phase === PHASE.DEAD && g.deadReason === 'score' && g.scorer) {
+      // touchdown: orbit the scorer while he celebrates
+      const s = g.ents[g.scorer.team][g.scorer.idx]; const a = this.t * 1.1;
+      fx = s.x; fy = s.y; px = s.x + Math.cos(a) * 5.5; py = s.y + Math.sin(a) * 5.5; ph = 2.4; lh = 1.3;
     } else {
       const c = g.carrier();
       const tx = c ? c.x : b.x, ty = c ? c.y : b.y;

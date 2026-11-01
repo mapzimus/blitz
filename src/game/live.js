@@ -384,7 +384,7 @@ function resolveContact(g, off, def, dt) {
       const big = d.state === 'dive' && Math.random() < 0.5;
       g.stats.hits[d.team]++;
       g.emit('sound', { name: big ? 'bighit' : 'hit' });
-      if (Math.random() < (big ? 0.08 : 0.025) && !g.special) {
+      if (Math.random() < (big ? 0.08 : 0.025) && !g.special && g.rules.fumbles !== false) {
         g.dropBall(); const b = g.ball; b.loose = true; b.vx = (Math.random() - 0.5) * 6; b.vy = (Math.random() - 0.5) * 6; b.vz = 7; b.bounces = 0;
         setState(c, 'down', 1.0); setState(d, 'down', 0.6); g.say('FUMBLE!'); g.stats.team[c.team].fum++; g.emit('sound', { name: 'fumble' });
         return;

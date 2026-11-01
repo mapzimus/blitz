@@ -32,6 +32,7 @@ export class Game {
     this.phase = PHASE.KICKOFF; this.phaseT = 0;
     this.special = null;           // 'kickoff' | 'punt' | 'fg' | 'pat' | 'pat2' | null
     this.meter = null;             // human kick meter {t,val,dur}
+    this.scorer = null;            // who just scored (celebration camera)
     this.offPlay = null; this.defPlay = null; this.offPick = null; this.defPick = null;
     this.playType = 'pass'; this.handedOff = false; this.caught = false; this.liveT = 0;
     this.deadT = 0; this.deadReason = ''; this.deadSpot = null; this.whistleX = 0;
@@ -123,7 +124,7 @@ export class Game {
 
   // ---------- play calling ----------
   startPlaycall() {
-    this.phase = PHASE.PLAYCALL; this.phaseT = 0;
+    this.phase = PHASE.PLAYCALL; this.phaseT = 0; this.scorer = null;
     this.offPick = null; this.defPick = null; this.offPlay = null; this.defPlay = null;
     this.special = this.special === 'pat2' ? 'pat2' : null;
     this.buildEntities();
@@ -280,7 +281,8 @@ export class Game {
       } else { this.stat(c, 'rushYds', gain); this.stats.team[this.poss].rushYds += gain; }
       if (reason === 'score') this.stat(c, 'td');
     }
-    if (c) setState(c, 'tackled', 1.2);
+    if (c && reason === 'score' && !this.special) { setState(c, 'celebrate', 4.5); this.scorer = { team: c.team, idx: c.idx }; }
+    else if (c) setState(c, 'tackled', 1.2);
     if (reason === 'tackle' && this.intercepted) this.say('Return ends at the ' + Math.round(this.yardline(x, this.poss)) + '.');
     else if (reason === 'tackle' && !this.special) { const gain = (x - this.los) * dir; this.say(gain >= 0 ? `Tackled. Gain of ${gain.toFixed(0)}.` : `Tackled for a loss of ${(-gain).toFixed(0)}.`); }
     else if (reason === 'tackle') this.say('Return ends at the ' + Math.round(this.yardline(x, this.poss)) + '.');
@@ -373,6 +375,7 @@ export class Game {
   }
   choosePat(team, choice) {
     if (this.phase !== PHASE.PAT_CHOICE || team !== this.poss) return;
+    this.scorer = null;
     const dir = this.dir[team];
     const spot = this.goalLineFor(team) - dir * this.rules.patSpot;
     if (choice === 'kick') { this.special = 'pat'; this.los = spot; this.setDown(1, spot); this.special = 'pat'; this.offPick = 'fg'; this.defPick = 3; this.phase = PHASE.PLAYCALL; this.setupFormation(); this.special = 'pat'; this.playType = 'kick'; }
@@ -404,6 +407,7 @@ export class Game {
   // ---------- main tick ----------
   tick(dt) {
     this.phaseT += dt;
+    if (this.rules.alwaysFire) { this.fire[0] = true; this.fire[1] = true; }   // cheat code
     const P = this.phase;
     if (!this.clockStopped && (P === PHASE.LIVE || P === PHASE.DEAD || P === PHASE.PLAYCALL || P === PHASE.PRESNAP)) {
       this.clock = Math.max(0, this.clock - dt);

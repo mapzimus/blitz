@@ -45,6 +45,7 @@ async function materialFor(assets, mat, opts = {}) {
   const Mat = opts.unlit ? THREE.MeshBasicMaterial : opts.shiny ? THREE.MeshPhongMaterial : THREE.MeshLambertMaterial;
   const m = new Mat({ ...(opts.shiny ? { shininess: 45, specular: 0x666666 } : {}), map: map || null, color: map ? 0xffffff : 0x8a8a8a, vertexColors: !!opts.vertexColors, side: opts.doubleSide ? THREE.DoubleSide : THREE.FrontSide, transparent: !!opts.transparent, alphaTest: opts.transparent ? 0.3 : 0 });
   if (opts.depthWrite === false) { m.depthWrite = false; m.depthTest = false; }
+  m.userData.disc = true; m.userData.unlit = !!opts.unlit;
   return m;
 }
 

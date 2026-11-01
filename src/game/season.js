@@ -20,6 +20,7 @@ export class Season {
     this.save();
   }
   recordOf(id) { return { w: this.s.w[id], l: this.s.l[id] }; }
+  leader(key) { const L = Object.values(this.s.leaders || {}).filter(p => p[key] > 0).sort((a, b) => b[key] - a[key])[0]; return L || null; }
   standings() { return [...Array(this.n).keys()].map(id => ({ id, w: this.s.w[id], l: this.s.l[id] })).sort((a, b) => b.w - a.w || a.l - b.l || a.id - b.id); }
 
   // The next game the player is in: { ids: [home, away], human: [bool, bool], label, kind }, or null when the season is over.
@@ -51,8 +52,15 @@ export class Season {
   }
 
   // Record a finished game. ids = [home, away], score = [home, away]. A tie goes down as a loss for both sides.
-  record(ids, score) {
+  record(ids, score, stats = null) {
     const s = this.s; if (!s) return;
+    if (stats && stats.players) {   // league leaders accumulate across the season
+      s.leaders = s.leaders || {};
+      for (const p of stats.players.values()) {
+        const team = ids[p.team], k = team + ':' + p.name; const L = s.leaders[k] || (s.leaders[k] = { team, name: p.name, pos: p.pos, passYds: 0, rushYds: 0, recYds: 0, td: 0, tackles: 0 });
+        for (const f of ['passYds', 'rushYds', 'recYds', 'td', 'tackles']) L[f] += p[f] || 0;
+      }
+    }
     const nx = this.next(); if (!nx || nx.ids[0] !== ids[0] || nx.ids[1] !== ids[1]) return;
     const [h, a] = ids; const win = score[0] === score[1] ? null : score[0] > score[1] ? h : a;
     for (const id of ids) { if (id === win) s.w[id]++; else s.l[id]++; }
