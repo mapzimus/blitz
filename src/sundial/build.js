@@ -112,7 +112,8 @@ export function mapToGroup(map, texSrc) {
   for (const sec of map.sections) {
     sec.streams.forEach((st, si) => {
       if (!st || !st.groups.length) return;
-      const mesh = streamToMesh(st, map.materials, texSrc, { transparent: si === 2 });
+      // Stream 1 is the overlay layer (light pools, frost, decals) and stream 2 the transparent one; both blend.
+      const mesh = streamToMesh(st, map.materials, texSrc, { transparent: si >= 1 });
       mesh.userData.section = sec.id;
       grp.add(mesh);
       if (si === 0) solid.push(mesh);

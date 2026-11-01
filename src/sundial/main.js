@@ -186,6 +186,8 @@ scene.background = new THREE.Color(0x05070c);
 const camera = new THREE.PerspectiveCamera(80, 1, 0.05, 400);
 const weaponCam = new THREE.PerspectiveCamera(60, 1, 0.01, 10);
 const weaponScene = new THREE.Scene();
+const skyScene = new THREE.Scene(); // drawn first, rotation only, so clouds never overdraw the level
+const skyCam = new THREE.PerspectiveCamera(80, 1, 0.1, 1000);
 weaponScene.add(new THREE.AmbientLight(0xffffff, 1));
 scene.add(new THREE.HemisphereLight(0xcfd8e8, 0x3a3328, 1.6));
 const sun = new THREE.DirectionalLight(0xfff0dd, 1.2); sun.position.set(3, 10, 4); scene.add(sun);
@@ -194,6 +196,7 @@ function resize() {
   renderer.setSize(w, h, false);
   camera.aspect = w / h; camera.updateProjectionMatrix();
   weaponCam.aspect = w / h; weaponCam.updateProjectionMatrix();
+  skyCam.aspect = w / h; skyCam.updateProjectionMatrix();
 }
 addEventListener('resize', resize); resize();
 
@@ -620,9 +623,11 @@ function standings() {
   else { rows.forEach(r => (r.score = r.kills)); rows.sort((a, b) => b.kills - a.kills || a.deaths - b.deaths); }
   return rows;
 }
+// Names come from the disc's text table, so they are escaped before any HTML.
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 function updateBoard() {
   const rows = standings();
-  $('#board').innerHTML = '<table>' + rows.map(r => `<tr class="${r.me ? 'me' : ''}"><td>${r.name}</td><td>${r.deaths}</td><td>${r.score}</td></tr>`).join('') + '</table>';
+  $('#board').innerHTML = '<table>' + rows.map(r => `<tr class="${r.me ? 'me' : ''}"><td>${esc(r.name)}</td><td>${r.deaths}</td><td>${esc(r.score)}</td></tr>`).join('') + '</table>';
 }
 function endMatch() {
   if (match.over) return;
@@ -637,7 +642,7 @@ function endMatch() {
     else medalLine = '<div class="fine">No medal this time.</div>';
     renderLeague();
   }
-  $('#end').innerHTML = `${win ? 'YOU WIN' : rows[0].name.toUpperCase() + ' WINS'}${medalLine}<div class="fine">${rows.map(r => `${r.name} ${r.score}`).join(' &nbsp;·&nbsp; ')}</div><div class="fine">Press Enter for the menu</div>`;
+  $('#end').innerHTML = `${win ? 'YOU WIN' : esc(rows[0].name.toUpperCase()) + ' WINS'}${medalLine}<div class="fine">${rows.map(r => `${esc(r.name)} ${esc(r.score)}`).join(' &nbsp;·&nbsp; ')}</div><div class="fine">Press Enter for the menu</div>`;
   $('#end').hidden = false; $('#board').hidden = true;
   if (document.exitPointerLock) document.exitPointerLock();
 }
@@ -665,7 +670,7 @@ async function enter(levelName) {
 
   // Clear the previous arena.
   if (world.group) scene.remove(world.group);
-  if (world.sky) scene.remove(world.sky);
+  if (world.sky) skyScene.remove(world.sky);
   if (world.bots) for (const b of world.bots.list) scene.remove(b.group);
   if (world.pickups) for (const p of world.pickups.list) scene.remove(p.group);
   if (world.proj) for (const p of world.proj.list) world.proj.remove(p);
@@ -682,9 +687,9 @@ async function enter(levelName) {
     try {
       const sm = parseModel(pak.get(skyName));
       const sky = modelToGroup(sm, texSrc);
-      sky.traverse(o => { if (o.isMesh) { o.material.forEach(m => { m.depthWrite = false; m.depthTest = false; }); o.renderOrder = -100; o.frustumCulled = false; } });
+      sky.traverse(o => { if (o.isMesh) { o.material.forEach(m => { m.depthWrite = false; }); o.frustumCulled = false; } });
       sky.scale.setScalar(sm.scale || 1);
-      world.sky = sky; scene.add(sky);
+      world.sky = sky; skyScene.add(sky);
     } catch (e) { console.warn('sky failed', e); }
   }
 
@@ -773,12 +778,16 @@ function frame(now) { const dt = Math.min(0.05, (now - last) / 1000); last = now
 function render(dt) {
   if (playing()) step(dt);
   else if (world.group) { camera.position.copy(player.pos); camera.position.y += player.eye; }
-  if (world.sky) world.sky.position.copy(camera.position);
   flash.intensity *= 0.6;
   for (const t of tracers) { t.userData.t += dt; t.material.opacity = Math.max(0, 0.9 - t.userData.t * 8); if (t.userData.t > 0.15) { scene.remove(t); t.userData.done = true; } }
   if (tracers.some(t => t.userData.done)) tracers.splice(0, tracers.length, ...tracers.filter(t => !t.userData.done));
   if (hurt > 0) { hurt -= dt; $('#hud').style.boxShadow = `inset 0 0 ${80 * hurt * 4}px #d00`; } else $('#hud').style.boxShadow = '';
   renderer.autoClear = true;
+  if (world.sky) {
+    skyCam.quaternion.copy(camera.quaternion); skyCam.fov = camera.fov; skyCam.updateProjectionMatrix();
+    renderer.render(skyScene, skyCam);
+    renderer.autoClear = false; renderer.clearDepth();
+  }
   renderer.render(scene, camera);
   if (weapon && !player.zoom) { renderer.autoClear = false; renderer.clearDepth(); renderer.render(weaponScene, weaponCam); }
 }
