@@ -77,4 +77,14 @@ select{font:16px Arial,sans-serif;padding:8px 10px;background:#1a1e2a;color:#fff
 #touch .tb[data-k=crouch]{right:28px;bottom:30px}
 #touch .tb[data-k=board]{right:24px;top:70px;width:48px;height:48px;font-size:11px}
 .medal{font-size:26px;letter-spacing:4px;margin-top:8px}
+#objectives{position:absolute;right:24px;top:60px;max-width:300px;font-family:Arial,sans-serif;font-size:14px;line-height:1.35;color:#fff;text-shadow:1px 1px 0 #000;background:#0008;border:2px solid #444;padding:8px 12px}
+#objectives h4{font-family:Impact,sans-serif;font-size:14px;letter-spacing:3px;color:var(--amber);margin:6px 0 2px}
+#objectives div{padding:1px 0 1px 14px;position:relative}
+#objectives div::before{content:'›';position:absolute;left:0;color:var(--teal)}
+#objectives div.done{color:#7c8;text-decoration:line-through}
+#objectives div.failed{color:var(--red)}
+#missions .match span{width:auto;margin-right:6px}
+#storybox summary{font-family:Impact,sans-serif;letter-spacing:3px;color:var(--teal);cursor:pointer}
+#brief{white-space:pre-wrap;font:13px/1.45 Arial,sans-serif;color:#bcd;max-height:220px;overflow:auto;margin:8px 0;padding:8px 10px;background:#0b0e16;border:1px solid #333}
+@media (max-width:640px){#objectives{right:8px;top:100px;max-width:60%;font-size:12px}}
 .medal.gold{color:#ffd24a}.medal.silver{color:#d8dde6}.medal.bronze{color:#d9924a}

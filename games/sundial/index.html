@@ -25,6 +25,7 @@
   <div id="wstats"><span id="wname"></span><br><span id="clip">0</span><span class="dim">/</span><span id="ammo">0</span></div>
   <div id="score"><span id="kills">0</span><span class="dim"> / </span><span id="limit">10</span> &nbsp; <span id="clock">5:00</span></div>
   <div id="msg"></div>
+  <div id="objectives" hidden></div>
   <div id="board" hidden></div>
   <div id="end" hidden></div>
 </div>
@@ -60,6 +61,11 @@
       <button class="btn" id="go">ENTER</button>
     </div>
     <p class="fine" id="cachenote"></p>
+    <details id="storybox" hidden><summary>STORY MISSIONS</summary>
+      <div class="row"><label for="sdiff">DIFFICULTY</label><select id="sdiff"><option value="0">Easy</option><option value="1" selected>Normal</option><option value="2">Hard</option></select></div>
+      <div id="missions"></div>
+      <p class="fine">Walk into things to pick them up, E uses switches and consoles, Tab shows the objectives.</p>
+    </details>
     <details id="leaguebox"><summary>ARCADE LEAGUE</summary><div id="league"></div></details>
   </div>
 </div>

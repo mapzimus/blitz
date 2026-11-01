@@ -120,6 +120,50 @@ def read_pad(pak_path, level):
     return nodes
 
 
+CHAR_TABLE = 0x4bb370   # 162 x 0x44: model obj, lod obj, ..., name text at +0x3c (u16, 1-based)
+CAST_TABLE = 0x4acd18   # per-level weapon set: 0x44 each: w0, count, 15 weapon ids
+CLASS_TABLE = 0x4ab9a4  # per-level enemy classes: 0x7c each: 31 character ids
+WEAPON_TABLE = 0x4ca580 # 0x48 each: name text, held model, promo model
+PICKUP_TABLES = {1: 0x4b95d8, 4: 0x4b9980, 8: 0x4b92c0, 0x10: 0x4b9350, 0x20: 0x4b98a8, 0x80: 0x4b9740, 0x100: 0x4b9aa0, 0x200: 0x4c08a0, 0x400: 0x4b9860}
+PICKUP_KIND = {1: 'bag', 2: 'weapon', 4: 'key', 8: 'health', 0x10: 'armour', 0x20: 'drop', 0x40: 'ammo', 0x80: 'powerup', 0x100: 'drop', 0x200: 'item', 0x400: 'drop'}
+WEAPON_KEYS = ['silencedpistol', 'silencedluger', 'luger', 'magnum', 'assaultshotgun', 'minigun', 'sniperrifle', 'sniperbolt', 'flamethrower', 'fireext', 'ak47', 'electrogun', 'scifihandgun', 'rocketlauncher', 'homingrocketlauncher', 'laser', 'plasmamachinegun', 'grenadelauncher', None, 'proxmine', 'remotemine', 'timedmine', 'tnt', 'tommygun', 'uzi', 'doublebarrelshotgun', 'brick']
+
+
+def character(elf, cid):
+    if not (0 <= cid < 162):
+        return None
+    w = elf.words(CHAR_TABLE + cid * 0x44, 17)
+    tid = w[15] & 0xffff
+    return {'id': cid, 'model': obj_name(elf, w[0]), 'lod': obj_name(elf, w[1]) if w[1] != 0xffffffff else None, 'text': tid, 'stats': [s32(x) for x in w[9:14]]}
+
+
+def weapon_set(elf, idx):
+    w = elf.words(CAST_TABLE + idx * 0x44, 17)
+    out = []
+    for wid in w[2:2 + min(15, w[1])]:
+        ww = elf.words(WEAPON_TABLE + wid * 0x48, 4)
+        out.append({'id': wid, 'text': ww[0], 'model': obj_name(elf, ww[1]), 'promo': obj_name(elf, ww[2])})
+    return out
+
+
+def resolve_pickup(elf, rec, wset):
+    t, idx = rec['type'], rec['chr']
+    kind = PICKUP_KIND.get(t, 'unknown')
+    out = {'kind': kind}
+    if t in (2, 0x40):
+        # weapon / ammo: idx into the level's weapon set
+        if 0 <= idx < len(wset):
+            ws = wset[idx]
+            out['weaponId'] = ws['id']; out['text'] = ws['text']; out['model'] = ws['model']
+            # map the held-model name back to a runtime weapon key
+            m = (ws['model'] or '').split('/')[-1].replace('_cl.raw', '')
+            out['weapon'] = m
+    elif t in PICKUP_TABLES:
+        ww = elf.words(PICKUP_TABLES[t] + idx * 0x48, 4)
+        out['text'] = ww[0]; out['model'] = obj_name(elf, ww[1])
+    return out
+
+
 def extract_descriptor(elf, desc, level, pak_path):
     w = elf.words(desc, 50)
     lists = {}
@@ -146,8 +190,16 @@ def extract_descriptor(elf, desc, level, pak_path):
                 'fn': hex(r[9]) if r[9] else None, 'id2': s32(r[10]), 'w11': r[11], 'w12': r[12]}
     out['props'] = [prop(r) for r in lst(3, 0x34)]
     out['props2'] = [prop(r) for r in lst(35, 0x34)]
-    out['chars'] = [{'cond': r[0], 'type': r[1], 'chr': r[2], 'w3': s32(r[3]), 'weapon': s32(r[4]), 'ai': s32(r[5]), 'node': node_ref(r[6])}
-                    for r in lst(5, 0x20)]
+    wset = weapon_set(elf, w[1]) if w[1] != 0xffffffff else []
+    out['weaponSet'] = wset
+    classes = [s32(x) for x in elf.words(CLASS_TABLE + w[2] * 0x7c, 31)] if w[2] != 0xffffffff else []
+    out['classes'] = [character(elf, c) if c else None for c in classes[:30]]
+    picks = []
+    for r in lst(5, 0x20):
+        rec = {'cond': r[0], 'type': r[1], 'chr': r[2], 'w3': s32(r[3]), 'w4': s32(r[4]), 'w5': s32(r[5]), 'node': node_ref(r[6])}
+        rec.update(resolve_pickup(elf, rec, wset))
+        picks.append(rec)
+    out['pickups'] = picks
     objs = []
     for r in lst(7, 0x58):
         objs.append({'id': s32(r[0]), 'cond': r[1], 'obj': r[2], 'path': obj_name(elf, r[2]), 'type': r[3], 'w4': s32(r[4]),
@@ -166,15 +218,23 @@ def extract_descriptor(elf, desc, level, pak_path):
         diff.append(trip)
     out['difficulty'] = diff
     out['hooks'] = [hex(x) for x in lst(15, 4) and [r[0] for r in lst(15, 4)]]
-    out['items'] = [{'id': s32(r[0]), 'cond': r[1], 'w2': r[2], 'obj': r[3], 'path': obj_name(elf, r[3]), 'w4': r[4], 'w5': r[5], 'w6': r[6], 'w7': r[7],
-                     'node': node_ref(r[8]), 'w9': r[9], 'w10': r[10], 'w11': r[11], 'amount': r[12], 'w13': r[13], 'w14': s32(r[14]),
-                     'fn': hex(r[15]) if r[15] else None, 'flags': r[16], 'w17': r[17], 'w18': r[18], 'w19': r[19]} for r in lst(17, 0x50)]
+    # G: enemy spawners. +8 spawn node, +0xc class index (-> classes[] -> character), +0x20 node/anim/object the
+    # condition function (+0x3c) watches, +0x28 flags (0x20 = needs line of sight clear), +0x2c total cap,
+    # +0x30 alive cap, +0x34 respawn delay (s), +0x38 patrol route index into difficulty[] (-2 none)
+    spawners = []
+    for r in lst(17, 0x50):
+        ci = r[3]
+        ch = out['classes'][ci] if 0 <= ci < len(out['classes']) else None
+        spawners.append({'id': s32(r[0]), 'cond': r[1], 'node': node_ref(r[2]), 'classIdx': ci, 'char': ch, 'w4': r[4], 'w5': r[5], 'w6': r[6], 'w7': r[7],
+                         'watch': node_ref(r[8]) or r[8], 'w9': r[9], 'flags': r[10], 'total': r[11], 'alive': r[12], 'delay': f(r[13]), 'route': s32(r[14]),
+                         'condFn': hex(r[15]) if r[15] else None, 'flags2': r[16], 'w17': r[17], 'w18': r[18], 'w19': r[19]})
+    out['spawners'] = spawners
     pick = []
     for r in lst(19, 0x18):
         pr = elf.words(r[4], 4) if r[4] and elf.is_data(r[4]) else None
         pick.append({'cond': r[0], 'obj': r[1], 'path': obj_name(elf, r[1]), 'w2': r[2], 'w3': r[3],
                      'at': {'id': pr[0], 'pos': [f(pr[1]), f(pr[2]), f(pr[3])]} if pr else None, 'w5': r[5]})
-    out['pickups'] = pick
+    out['placedPickups'] = pick
     out['animObjects'] = [{'id': s32(r[0]), 'cond': r[1], 'obj': r[2], 'path': obj_name(elf, r[2]), 'w3': r[3], 'anim': r[4], 'w5': s32(r[5]),
                            'node': node_ref(r[6]), 'pos': [f(r[7]), f(r[8]), f(r[9])],
                            'f10': [f(x) for x in r[10:19]], 'text': r[19], 'w20': r[20], 'f21': f(r[21]), 'w22': r[22], 'w23': r[23]}
@@ -244,11 +304,11 @@ def main():
             with open(fn, 'w') as fh:
                 json.dump(data, fh, indent=1)
             index.append({'level': L['num'], 'kind': kind, 'nameText': L['text'], 'scripted': scripted, 'file': os.path.basename(fn),
-                          'objectives': len(data['objectives']), 'chars': len(data['chars']), 'props': len(data['props']) + len(data['props2']),
+                          'objectives': len(data['objectives']), 'pickups': len(data['pickups']), 'props': len(data['props']) + len(data['props2']),
                           'objects': len(data['objects']), 'triggers': len(data['triggers']), 'missingNodes': data['missingNodes']})
-            print('%s %d: %d objectives, %d chars, %d objects, %d props, %d items, %d triggers, %d interact, missing nodes %s' % (
-                kind, L['num'], len(data['objectives']), len(data['chars']), len(data['objects']), len(data['props']) + len(data['props2']),
-                len(data['items']), len(data['triggers']), len(data['interact']), data['missingNodes'][:5]))
+            print('%s %d: %d objectives, %d pickups, %d objects, %d props, %d items, %d triggers, %d interact, missing nodes %s' % (
+                kind, L['num'], len(data['objectives']), len(data['pickups']), len(data['objects']), len(data['props']) + len(data['props2']),
+                len(data['spawners']), len(data['triggers']), len(data['interact']), data['missingNodes'][:5]))
     with open(os.path.join(outdir, 'index.json'), 'w') as fh:
         json.dump(index, fh, indent=1)
 

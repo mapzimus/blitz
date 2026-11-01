@@ -18,6 +18,8 @@ import { Projectiles } from './projectiles.js';
 import { Pickups } from './pickups.js';
 import { Music } from './music.js';
 import { Fx } from './fx.js';
+import { Story } from './story.js';
+import { MISSIONS, loadMission } from './missions/index.js';
 
 const $ = s => document.querySelector(s);
 const status = t => { $('#dirstatus').textContent = t; };
@@ -38,7 +40,7 @@ const okOrigin = s => { try { const u = new URL(s, location.href); return u.orig
 const Q = new URLSearchParams(location.search);
 const SRC = okOrigin(Q.get('src') || '') ? Q.get('src') : null; // dev: fetch archives from a local server
 const PACK_URL = okOrigin(Q.get('pack') || '') ? Q.get('pack') : null; // one-time asset pack download
-const NAME_OK = /^(gun|sounds|anim|fe_anim|chr|l_103)\.pak$|^l_\d+_(ar|st)\.pak$|^\d{4}\.mib$/;
+const NAME_OK = /^(gun|sounds|anim|fe_anim|chr|l_103)\.pak$|^l_\d+_(ar|st)\.pak$|^\d{4}\.mib$|^story\/level\d+\.json$/;
 const MUSIC_TRACKS = [...Array(30)].map((_, i) => 1030 + i); // MUSIC1 folder, 1030-1059
 // Private site: the archives sit on this origin under /pack/sundial/<name>, served with ranges by a
 // Pages Function from a private bucket behind the login gate. Detected once at boot.
@@ -59,11 +61,12 @@ async function fileBuf(name) {
     return buf;
   }
   if (SRC) {
-    let path = name.toUpperCase();
-    if (ARENA.test(name)) path = (name.endsWith('_st.pak') ? 'STORY/' : 'ARCADE/') + path;
+    let path = name.toUpperCase(), base = SRC;
+    if (name.startsWith('story/')) { path = name; base = SRC.replace(/PAK\/?$/i, ''); } // story data sits beside the PAK folder
+    else if (ARENA.test(name)) path = (name.endsWith('_st.pak') ? 'STORY/' : 'ARCADE/') + path;
     else if (name === FRONTEND) path = 'ARCADE/' + path;
     else if (/^\d{4}\.mib$/.test(name)) { const id = parseInt(name); path = `../MUSIC/MUSIC${id < 1030 ? 0 : id < 1060 ? 1 : 2}/${path}`; }
-    const r = await fetch(SRC + path);
+    const r = await fetch(base + path);
     if (!r.ok) throw new Error(`${r.status} fetching ${name}`);
     return r.arrayBuffer();
   }
@@ -90,7 +93,7 @@ async function refreshLevelList() {
     try {
       const fe = new Pak(await fileBuf(FRONTEND), FRONTEND);
       const strName = fe.list('boss/').find(p => /_e\.str$/.test(p)) || fe.list('boss/').find(p => p.endsWith('.str'));
-      if (strName) { text = new TextTable(fe.get(strName)); setText(text); renderLeague(); }
+      if (strName) { text = new TextTable(fe.get(strName)); setText(text); renderLeague(); renderMissions(); }
     } catch (e) { console.warn('text table', e.message); }
   }
   const names = new Set([...cached, ...pickedFiles.keys()].filter(n => ARENA.test(n)));
@@ -201,7 +204,7 @@ function resize() {
 }
 addEventListener('resize', resize); resize();
 
-const world = { group: null, solid: [], pad: null, nodes: [], spawn: new THREE.Vector3(0, 2, 0), bots: null, proj: null, pickups: null, gun: null, gunTex: null, sky: null };
+const world = { group: null, solid: [], pad: null, nodes: [], spawn: new THREE.Vector3(0, 2, 0), bots: null, proj: null, pickups: null, gun: null, gunTex: null, sky: null, story: null, fx: null };
 const match = { mode: 'dm', limit: 10, time: 300, left: 300, over: false, started: 0, lives: 3, bag: null, holder: null, bagLimit: 60 };
 const player = {
   pos: new THREE.Vector3(), vel: new THREE.Vector3(), yaw: 0, pitch: 0,
@@ -352,10 +355,14 @@ function step(dt) {
   if (world.bots) world.bots.update(dt, player);
   if (world.proj) world.proj.update(dt, projectileHit);
   if (world.pickups) world.pickups.update(dt, player.dead ? { pos: new THREE.Vector3(0, 9999, 0) } : player, takePickup, world.bots);
+  if (world.story) {
+    world.story.update(dt, player);
+    if (!match.over) $('#clock').textContent = `${Math.floor(world.story.time / 60)}:${String(Math.floor(world.story.time % 60)).padStart(2, '0')}`;
+  }
   modeTick(dt);
 
   // match clock
-  if (!match.over) {
+  if (!match.over && !world.story) {
     match.left -= dt;
     if (match.left <= 0) endMatch();
     $('#clock').textContent = `${Math.floor(Math.max(0, match.left) / 60)}:${String(Math.floor(Math.max(0, match.left) % 60)).padStart(2, '0')}`;
@@ -485,7 +492,8 @@ function hitscan(origin, dir, range, dmg, key, tracer, headDmg) {
       else if (d >= 15 && hurtVoices.length) sfx.play(pick(hurtVoices), { pos: bot.group.position, listener: camera.position, volume: 0.6 });
     } else {
       if (world.fx && hits[0].face) world.fx.puff(end, hits[0].face.normal.clone().transformDirection(hits[0].object.matrixWorld));
-      if (Math.random() < 0.25) sfx.play(pick(SFX.ricochet), { pos: end, listener: camera.position, volume: 0.5 });
+      const scripted = world.story && world.story.damage(hits[0].object, dmg, end);
+      if (!scripted && Math.random() < 0.25) sfx.play(pick(SFX.ricochet), { pos: end, listener: camera.position, volume: 0.5 });
     }
   }
   if (tracer) {
@@ -571,6 +579,7 @@ function die(by) {
   player.dead = true; player.deaths++; player.respawnIn = 1.5; player.hp = 0;
   if (by && by.kills !== undefined) { by.kills++; }
   if (dieVoices.length) sfx.play(pick(dieVoices), { volume: 0.7 });
+  if (world.story) { player.out = true; updateHud(); setTimeout(() => world.story && world.story.playerDied(), 1500); return; }
   msg(by && by.name ? `SPLIT BY ${by.name.toUpperCase()}` : 'YOU WERE SPLIT', 2500);
   if (match.mode === 'bag' && match.holder === 'player') dropBag(player.pos);
   if (match.mode === 'elim') { player.lives--; if (player.lives <= 0) { player.out = true; msg('ELIMINATED', 3000); } }
@@ -583,6 +592,19 @@ function checkElimination() {
   if (alive <= 1) endMatch();
 }
 function respawn() {
+  if (world.story) {
+    const st = world.story.start;
+    if (st) { world.spawn.set(st.pos.x, st.pos.y + 0.2, st.pos.z); player.yaw = st.yaw; player.pitch = 0; }
+    else { const s = pick(world.nodes); world.spawn.set(s.pos.x, s.pos.y + 0.2, s.pos.z); }
+    player.pos.copy(world.spawn); player.vel.set(0, 0, 0); player.hp = 100; player.armour = 0; player.dead = false; player.out = false;
+    player.weapons = [];
+    // Start with the level's first sidearm; the mission script may hand out more.
+    const set = (world.story.data.weaponSet || []).map(w => (w.model || '').split('/').pop().replace('_cl.raw', ''));
+    const starter = set.find(k => WEAPONS[k] && /pistol|luger|magnum|scifihandgun/.test(k)) || set.find(k => WEAPONS[k]);
+    if (starter) giveWeapon(starter);
+    updateHud();
+    return;
+  }
   const nodes = world.spawns || world.nodes;
   if (nodes.length) { const s = pick(nodes); world.spawn.set(s.pos.x, s.pos.y + 0.2, s.pos.z); }
   player.pos.copy(world.spawn); player.vel.set(0, 0, 0); player.hp = 100; player.armour = 0; player.dead = false;
@@ -600,6 +622,7 @@ function onBotKilled(bot, by) {
   }
   if (by === 'player') { player.kills++; msg(`SPLIT  ${bot.name.toUpperCase()}`); if (dieVoices.length) sfx.play(pick(dieVoices), { pos: bot.group.position, listener: camera.position }); }
   else if (by && by.kills !== undefined) by.kills++;
+  if (world.story) { world.story.botKilled(bot, by); updateHud(); return; }
   if (match.mode === 'bag' && match.holder === bot) dropBag(bot.group.position);
   if (match.mode === 'elim') { bot.lives = (bot.lives ?? match.lives) - 1; if (bot.lives <= 0) bot.out = true; checkElimination(); }
   if (match.mode === 'dm') { if (by === 'player' && player.kills >= match.limit) endMatch(); else if (by && by.kills >= match.limit) endMatch(); }
@@ -643,7 +666,8 @@ function updateHud() {
   const w = curWeapon();
   $('#wname').textContent = w ? slotName(w.key).toUpperCase() : '';
   $('#clip').textContent = w ? w.clip : 0; $('#ammo').textContent = w ? w.ammo : 0;
-  if (match.mode === 'bag') { $('#kills').textContent = Math.floor(player.bagTime); $('#limit').textContent = match.bagLimit + 's'; }
+  if (match.mode === 'story') { $('#kills').textContent = player.kills; $('#limit').textContent = world.bots ? `${world.bots.list.filter(b => b.story && !b.dead).length} LEFT` : ''; }
+  else if (match.mode === 'bag') { $('#kills').textContent = Math.floor(player.bagTime); $('#limit').textContent = match.bagLimit + 's'; }
   else if (match.mode === 'elim') { $('#kills').textContent = `${player.lives} LIVES`; $('#limit').textContent = `${world.bots ? world.bots.list.filter(b => !b.out).length + (player.out ? 0 : 1) : 0} LEFT`; }
   else { $('#kills').textContent = player.kills; $('#limit').textContent = match.limit; }
 }
@@ -682,10 +706,12 @@ function endMatch() {
 addEventListener('keydown', e => { if (e.code === 'Enter' && match.over) { $('#end').hidden = true; $('#board').hidden = true; $('#setup').hidden = false; } });
 
 // ---------- loading ----------
-async function enter(levelName) {
+async function enter(levelName, opts = {}) {
   status('Loading…');
   const n = levelName.match(ARENA)[1];
-  const [lvlBuf, gunBuf, sndBuf, animBuf, feBuf] = await Promise.all([fileBuf(levelName), fileBuf('gun.pak'), fileBuf('sounds.pak'), fileBuf('anim.pak'), fileBuf('fe_anim.pak')]);
+  const storyMode = !!opts.story;
+  const [lvlBuf, gunBuf, sndBuf, animBuf, feBuf, storyBuf, script] = await Promise.all([fileBuf(levelName), fileBuf('gun.pak'), fileBuf('sounds.pak'), fileBuf('anim.pak'), fileBuf('fe_anim.pak'),
+    storyMode ? fileBuf(`story/level${n}.json`) : null, storyMode ? loadMission(parseInt(n)) : null]);
   const pak = new Pak(lvlBuf, levelName);
   world.gun = new Pak(gunBuf, 'gun.pak'); world.gunTex = new TexSource(world.gun);
   if (!sfx.pak) {
@@ -749,6 +775,28 @@ async function enter(levelName) {
   world.pickups = new Pickups({ scene, pak, gun: world.gun, texSrc, gunTex: world.gunTex, nodes: spots, sfx, roster: BOT_WEAPONS.concat(['minigun', 'homingrocketlauncher', 'sniperrifle', 'flamethrower', 'electrogun', 'tnt']) });
   world.pickups.place(spots === world.itemSpots ? spots.length : Math.min(24, Math.max(8, Math.floor(world.nodes.length / 6))));
   world.bots = new Bots({ pak, gun: world.gun, texSrc, gunTex: world.gunTex, pad: world.pad, scene, solid: world.solid, anims, bind, onShoot: onBotShoot, onBotKilled, names: [], text });
+  if (world.story) { world.story.dispose(); world.story = null; }
+  if (storyMode) {
+    // Story: the level's own placements replace the arena pickups and the random bots.
+    for (const p of world.pickups.list) scene.remove(p.group); world.pickups.list = [];
+    const data = JSON.parse(new TextDecoder().decode(new Uint8Array(storyBuf)));
+    world.bots.skill = [0.7, 1, 1.35][opts.diff] || 1;
+    world.story = new Story({ data, diff: opts.diff ?? 1, scene, pak, texSrc, gun: world.gun, gunTex: world.gunTex, world, bots: world.bots, text, hooks: storyHooks });
+    world.story.level = parseInt(n);
+    world.story.useScript(script);
+    match.mode = 'story'; match.limit = 0; match.time = 0; match.left = 0; match.over = false; match.lives = 1; match.holder = null; match.preset = null;
+    if (match.bag) { scene.remove(match.bag); match.bag = null; }
+    player.kills = 0; player.deaths = 0; player.lives = 1; player.bagTime = 0; player.out = false;
+    respawn(); updateBoard(); renderObjectives();
+    $('#setup').hidden = true; $('#hud').hidden = false; $('#end').hidden = true; $('#objectives').hidden = false;
+    status('Mission loaded.');
+    grabMouse();
+    msg(arenaName(n, 'st').toUpperCase(), 3000);
+    playMusic();
+    world.story.update(0, player);
+    console.log(`mission ${n}: ${world.story.props.length} props, ${world.story.doors.length} doors, ${world.story.pickups.length} pickups, ${world.story.spawners.length} spawners, ${world.story.cameras.length} cameras, ${world.story.switches.length} switches, ${world.story.objectives.length} objectives`);
+    return;
+  }
   world.bots.spawn(Math.min(parseInt($('#botcount').value) || 4, Math.max(1, world.bots.models.length * 2)));
   world.bots.skill = parseFloat($('#skill').value) || 1;
   world.bots.pickups = world.pickups;
@@ -769,7 +817,7 @@ async function enter(levelName) {
   player.kills = 0; player.deaths = 0; player.lives = match.lives; player.bagTime = 0; player.out = false;
   for (const b of world.bots.list) { b.lives = match.lives; b.bagTime = 0; b.out = false; b.goal = null; }
   respawn(); updateBoard();
-  $('#setup').hidden = true; $('#hud').hidden = false; $('#end').hidden = true;
+  $('#setup').hidden = true; $('#hud').hidden = false; $('#end').hidden = true; $('#objectives').hidden = true;
   status(`${pickedFiles.size || ''} ready.`);
   grabMouse();
   msg(`${arenaName(n, levelName.endsWith('_st.pak') ? 'st' : 'ar').toUpperCase()}  ·  FIRST TO ${match.limit}`, 3000);
@@ -779,6 +827,86 @@ async function enter(levelName) {
 }
 
 $('#go').addEventListener('click', () => { match.preset = null; enter($('#level').value).catch(e => { status(e.message); console.error(e); }); });
+
+// ---------- story missions ----------
+const STORY_KEY = 'sundial.story';
+let storyProgress = (() => { try { return JSON.parse(localStorage.getItem(STORY_KEY) || '{}'); } catch (e) { return {}; } })();
+function saveStory() { try { localStorage.setItem(STORY_KEY, JSON.stringify(storyProgress)); } catch (e) { /* no storage */ } }
+const useKey = { held: false };
+addEventListener('keydown', e => { if (e.code === 'KeyE' || e.code === 'KeyF') useKey.held = true; });
+addEventListener('keyup', e => { if (e.code === 'KeyE' || e.code === 'KeyF') useKey.held = false; });
+const storyHooks = {
+  msg: (t, ms) => msg(t, ms),
+  hud: () => renderObjectives(),
+  sfx: name => { const map = { objective: SFX.armour, door: 'door_open', switch: SFX.pickup }; const k = map[name] || name; if (k) sfx.play(k, { volume: 0.6 }); },
+  end: (win, why) => missionEnd(win, why),
+  player: () => player,
+  useHeld: () => useKey.held || touch.held.has('jump') && false,
+  give: key => giveWeapon(key),
+  take: key => { player.weapons = player.weapons.filter(w => w.key !== key); selectWeapon(0); },
+  pickup: p => storyPickup(p),
+  turretFire: (c, from, to) => {
+    sfx.play(WEAPONS.minigun ? WEAPONS.minigun.sfx : 'uzi', { pos: from, listener: camera.position, volume: 0.5 });
+    const dir = to.clone().sub(from).normalize();
+    const g = new THREE.BufferGeometry().setFromPoints([from, to]);
+    const l = new THREE.Line(g, tracerMat.clone()); l.material.color.set('#ff5030'); l.userData.t = 0; scene.add(l); tracers.push(l);
+    if (Math.random() < 0.45) damagePlayer(8, null);
+  },
+  explode: (pos, big) => { if (big) { splash(pos, 4, 60, 'world'); world.proj && world.proj.boom && world.proj.boom(pos); sfx.play(SFX.explode || 'explosion1', { pos, listener: camera.position, volume: 0.9 }); } else sfx.play(pick(SFX.ricochet), { pos, listener: camera.position, volume: 0.5 }); },
+};
+function storyPickup(p) {
+  if (p.kind === 'weapon') { const key = p.weapon; if (!WEAPONS[key]) { msg((text.get(p.rec.text) || 'ITEM').toUpperCase()); return true; } const had = player.weapons.some(w => w.key === key); if (!giveWeapon(key) && had) return false; sfx.play(SFX.pickup, { volume: 0.7 }); msg(slotName(key).toUpperCase()); return true; }
+  if (p.kind === 'ammo') { const key = p.weapon; const w = player.weapons.find(x => x.key === key) || curWeapon(); if (!w || w.ammo >= w.def.max) return false; w.ammo = Math.min(w.def.max, w.ammo + w.def.clip * 2); sfx.play(SFX.ammo, { volume: 0.7 }); msg('AMMO'); updateHud(); return true; }
+  if (p.kind === 'health') { if (player.hp >= 100) return false; player.hp = Math.min(100, player.hp + 25); sfx.play(SFX.health, { volume: 0.7 }); msg('HEALTH'); updateHud(); return true; }
+  if (p.kind === 'armour') { if (player.armour >= 100) return false; player.armour = Math.min(100, player.armour + (/armour2|big/.test(p.model || '') ? 100 : 50)); sfx.play(SFX.armour, { volume: 0.7 }); msg('ARMOUR'); updateHud(); return true; }
+  if (p.kind === 'item' || p.kind === 'key' || p.kind === 'bag') { sfx.play(SFX.armour, { volume: 0.7 }); const nm = (p.model || '').split('/').pop().replace('.raw', '').toUpperCase(); msg(/crystal/i.test(nm) ? 'TIME CRYSTAL RECOVERED' : nm, 2500); return true; }
+  return true;
+}
+function renderObjectives() {
+  const el = $('#objectives'); const S = world.story;
+  if (!el || !S) return;
+  const groups = [[], [], []];
+  for (const o of S.objectives) if (o.state !== 'absent' && o.state !== 'hidden') groups[o.cat].push(o);
+  const titles = [text.get(1316) || 'MAIN OBJECTIVES', text.get(1318) || 'SECONDARY OBJECTIVES', text.get(1320) || 'BONUS OBJECTIVES'];
+  el.innerHTML = groups.map((g, i) => g.length ? `<h4>${esc(titles[i])}</h4>` + g.map(o => `<div class="${o.state}">${esc(text.get(o.text, `Objective ${o.i}`).replace(/\n/g, ' '))}${o.need ? ` (${o.count}/${o.need})` : ''}</div>`).join('') : '').join('');
+  el.hidden = !el.innerHTML;
+}
+function missionEnd(win, why) {
+  if (match.over) return;
+  match.over = true; firing = false;
+  const S = world.story; const lvl = S.level, diff = S.diff;
+  if (win) {
+    const rec = storyProgress[lvl] || {}; const t = Math.round(S.time);
+    storyProgress[lvl] = { done: Math.max(rec.done || 0, diff + 1), best: Math.min(rec.best || 1e9, t) };
+    saveStory(); renderMissions();
+  }
+  const idx = MISSIONS.indexOf(lvl); const next = idx >= 0 ? MISSIONS[idx + 1] : null;
+  const mins = Math.floor(S.time / 60), secs = String(Math.floor(S.time % 60)).padStart(2, '0');
+  $('#end').innerHTML = `${win ? 'MISSION COMPLETE' : (esc(why || 'MISSION FAILED'))}<div class="fine">${esc(arenaName(lvl, 'st'))} · ${['Easy', 'Normal', 'Hard'][diff]} · ${mins}:${secs}</div>` +
+    `<div class="row" style="justify-content:center"><button class="btn" id="retry">${win ? 'REPLAY' : 'RETRY'}</button>${win && next ? `<button class="btn" id="nextm">NEXT MISSION</button>` : ''}<button class="btn" id="tomenu">MENU</button></div>`;
+  $('#end').hidden = false; $('#board').hidden = true;
+  $('#retry').onclick = () => { $('#end').hidden = true; startMission(lvl, diff); };
+  if ($('#nextm')) $('#nextm').onclick = () => { $('#end').hidden = true; startMission(next, diff); };
+  $('#tomenu').onclick = () => { $('#end').hidden = true; $('#setup').hidden = false; };
+  if (document.exitPointerLock) document.exitPointerLock();
+}
+function renderMissions() {
+  const el = $('#missions'); if (!el) return;
+  const box = $('#storybox');
+  const have = MISSIONS.filter(l => pickedFiles.has(`l_${l}_st.pak`) || (SRC || SITE_PACK));
+  box.hidden = !have.length;
+  el.innerHTML = MISSIONS.map((l, i) => {
+    const rec = storyProgress[l]; const prev = i === 0 || storyProgress[MISSIONS[i - 1]] || Q.get('unlock') === '1';
+    const stars = rec ? '★'.repeat(rec.done) : '';
+    return `<button class="match" data-level="${l}" ${prev ? '' : 'disabled'}><span>${i + 1}.</span>${esc(arenaName(l, 'st'))} <small>${rec ? `done · ${stars}` : prev ? '' : 'locked'}</small></button>`;
+  }).join('');
+  el.querySelectorAll('.match').forEach(b => b.addEventListener('click', () => startMission(parseInt(b.dataset.level), parseInt($('#sdiff').value) || 0)));
+}
+function startMission(level, diff) {
+  match.preset = null;
+  enter(`l_${level}_st.pak`, { story: true, diff }).catch(e => { status(e.message); console.error(e); });
+}
+renderMissions();
 
 // ---------- arcade league ----------
 let progress = loadProgress();

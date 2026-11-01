@@ -7,6 +7,8 @@ import { join, extname, normalize, resolve, relative, isAbsolute } from 'node:pa
 
 const disc = resolve(process.argv[2] || 'C:/disc');
 const port = Number(process.argv[3] || 8766);
+// Optional: a folder of story data files (levelNN.json), served at /disc/story/.
+const story = process.argv[4] ? resolve(process.argv[4]) : null;
 const repo = resolve(new URL('../..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.pak': 'application/octet-stream' };
 
@@ -14,7 +16,8 @@ createServer((req, res) => {
   let url;
   try { url = decodeURIComponent(req.url.split('?')[0]); } catch (e) { res.writeHead(400); return res.end(); }
   let root = repo;
-  if (url.startsWith('/disc/')) { root = disc; url = url.slice(5); }
+  if (story && url.startsWith('/disc/story/')) { root = story; url = url.slice(11); }
+  else if (url.startsWith('/disc/')) { root = disc; url = url.slice(5); }
   let p = normalize(join(root, url));
   const rel = relative(root, p);
   if (rel.startsWith('..') || isAbsolute(rel) || /(^|[\\/])\./.test(rel)) { res.writeHead(403); return res.end(); }

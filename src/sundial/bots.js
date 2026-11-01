@@ -18,7 +18,7 @@ export class Bots {
     this.ray = new THREE.Raycaster();
     this.list = [];
     this.nodes = new Map();
-    for (const n of pad.nodes) if (Number.isFinite(n.pos[0])) this.nodes.set(n.id, { id: n.id, pos: new THREE.Vector3(...n.pos), next: [] });
+    for (const n of pad.nodes) if (Number.isFinite(n.pos[0])) this.nodes.set(n.id, { id: n.id, pos: new THREE.Vector3(...n.pos), next: [], room: n.link });
     for (const l of pad.links) {
       const a = this.nodes.get(l.from), b = this.nodes.get(l.to);
       if (a && b) { a.next.push(b); b.next.push(a); }
@@ -62,6 +62,40 @@ export class Bots {
     }
   }
 
+  // Story enemies: a named character placed at a spot, with an optional patrol route (list of nav nodes).
+  // They do not respawn, and only start hunting once they notice the player.
+  spawnAt({ model, lod, pos, yaw = 0, name, weapon, hp = 80, route = null, skill }) {
+    const path = model && this.pak.has(model) ? model : lod && this.pak.has(lod) ? lod : null;
+    if (!path) return null;
+    let m = this.modelCache && this.modelCache.get(path);
+    if (!m) { try { m = parseModel(this.pak.get(path)); } catch (e) { return null; } (this.modelCache = this.modelCache || new Map()).set(path, m); }
+    if (!m.parts.length) return null;
+    const g = modelToGroup(m, this.texSrc, { lit: true });
+    g.scale.setScalar(m.scale || 1);
+    g.userData.bot = true;
+    const stem = path.replace(/^.*\//, '').replace(/\.raw$/, '');
+    const b = { id: this.list.length, name: name || (this.text && this.text.get(CHARACTER_TEXT[stem])) || 'Guard', group: g, hp, maxHp: hp, node: null, target: null, cool: 1 + Math.random(), dead: 0, speed: 2.4 + Math.random() * 0.6, hitFlash: 0, react: 0, rig: null, state: '', kills: 0, deaths: 0, weapon: null, gunObj: null, story: true, alert: false, route, routeIdx: 0, wait: 0, home: pos.clone(), homeYaw: yaw, lives: 1, skill: skill || 1 };
+    if (this.bind) {
+      b.rig = new Rig(g, m, this.bind);
+      const hatPath = `ob/chrs/${stem}_hat.raw`;
+      if (this.pak.has(hatPath)) { try { const hm = parseModel(this.pak.get(hatPath)); const hat = modelToGroup(hm, this.texSrc, { lit: true }); b.rig.attach(hat, HEAD, this.bind.inv[HEAD].clone()); } catch (e) { /* no hat */ } }
+    }
+    g.position.copy(pos); g.rotation.set(0, yaw, 0);
+    this.scene.add(g);
+    this.list.push(b);
+    b.node = this.nearestNode(pos); b.target = b.node;
+    this.arm(b, weapon && WEAPONS[weapon] ? weapon : pick(BOT_WEAPONS));
+    this.setAnim(b, 'standpose_m0');
+    return b;
+  }
+  remove(b) { this.scene.remove(b.group); this.list = this.list.filter(x => x !== b); }
+  // Wake a guard up: it and anyone close by start hunting.
+  alertBot(b, radius = 12) {
+    if (!b.story || b.alert) return;
+    b.alert = true;
+    for (const o of this.list) if (o.story && !o.alert && !o.dead && o.group.position.distanceTo(b.group.position) < radius) o.alert = true;
+  }
+
   setAnim(b, name, opts) {
     if (!b.rig) return;
     const c = this.clip(name);
@@ -94,6 +128,7 @@ export class Bots {
   hit(b, dmg, by) {
     if (b.dead) return false;
     b.hp -= dmg; b.hitFlash = 0.15;
+    if (b.story) this.alertBot(b, 10);
     if (b.hp <= 0) {
       b.dead = 0.001; b.deaths++;
       this.onBotKilled(b, by);
@@ -138,7 +173,7 @@ export class Bots {
       if (d < 35 && this.canSee(eye, pe)) best = { who: 'player', pos: pe, dist: d, moving: player.vel.lengthSq() > 1 };
     }
     for (const o of this.list) {
-      if (o === b || o.dead) continue;
+      if (o === b || o.dead || (b.story && o.story)) continue;
       const op = o.group.position.clone(); op.y += 1.3;
       const d = eye.distanceTo(op);
       if (d < 25 && (!best || d < best.dist * 0.8) && this.canSee(eye, op)) best = { who: o, pos: op, dist: d, moving: o.state === 'run_m0' };
@@ -153,6 +188,7 @@ export class Bots {
       const g = b.group;
       if (b.rig) b.rig.update(dt);
       if (b.dead) {
+        if (b.story) { b.dead += dt; if (b.dead > 12) { b.dead += 0; g.position.y -= dt * 0.5; } if (b.dead > 15) { this.remove(b); } continue; }
         if (b.out) { if (b.dead < 999) { b.dead += dt; if (b.dead > 3) g.position.y -= dt * 0.8; if (b.dead > 4.5) this.respawn(b); } continue; }
         b.dead += dt;
         if (!b.rig) g.rotation.x = Math.min(Math.PI / 2, b.dead * 4);
@@ -164,6 +200,18 @@ export class Bots {
       if (b.react > 0) { b.react -= dt; continue; }
 
       eye.copy(g.position); eye.y += 1.6;
+      if (b.story && !b.alert) {
+        // On guard: notice the player in front within 18 m, or anywhere within 4 m, then raise the others nearby.
+        if (!player.dead) {
+          const pe = player.pos.clone(); pe.y += player.eye;
+          const to = pe.clone().sub(eye); const d = to.length(); to.normalize();
+          const facing = new THREE.Vector3(Math.sin(g.rotation.y), 0, Math.cos(g.rotation.y));
+          const infront = facing.dot(to) > 0.45;
+          if ((d < 4 || (d < 18 * (this.skill || 1) && infront)) && this.canSee(eye, pe)) { b.notice = (b.notice || 0) + dt * (d < 6 ? 3 : 1); if (b.notice > 0.5) this.alertBot(b); }
+          else b.notice = Math.max(0, (b.notice || 0) - dt);
+        }
+        if (!b.alert) { this.patrol(b, dt); continue; }
+      }
       const tgt = this.pickTarget(b, eye, player);
       const w = WEAPONS[b.weapon] || WEAPONS.uzi;
       if (tgt) {
@@ -189,6 +237,30 @@ export class Bots {
         else { b.hunt = null; this.walk(b, dt); }
       }
     }
+  }
+
+  // Guard duty: walk the patrol route if there is one, else stand at the post and look around.
+  patrol(b, dt) {
+    const g = b.group;
+    if (b.route && b.route.length > 1) {
+      if (b.wait > 0) { b.wait -= dt; this.setAnim(b, 'standpose_m0'); return; }
+      const tp = b.route[b.routeIdx % b.route.length].pos;
+      const to = tp.clone().sub(g.position); to.y = 0;
+      const d = to.length();
+      if (d < 0.4) { b.routeIdx++; b.wait = 0.8 + Math.random() * 2; return; }
+      to.normalize();
+      g.position.addScaledVector(to, Math.min(d, b.speed * 0.55 * dt));
+      const yaw = Math.atan2(to.x, to.z);
+      let dy = yaw - g.rotation.y; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+      g.rotation.y += dy * Math.min(1, dt * 6);
+      this.setAnim(b, 'walk_m0', { speed: 0.9 });
+      if (b.state !== 'walk_m0') this.setAnim(b, 'run_m0', { speed: 0.5 });
+      return;
+    }
+    b.wait -= dt;
+    if (b.wait <= 0) { b.wait = 2 + Math.random() * 4; b.lookTo = b.homeYaw + (Math.random() - 0.5) * 1.6; }
+    if (b.lookTo !== undefined) { let dy = b.lookTo - g.rotation.y; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); g.rotation.y += dy * Math.min(1, dt * 2); }
+    this.setAnim(b, 'standpose_m0');
   }
 
   // Wander toward a worthwhile pickup nearby: a different gun, or health when hurt. Returns true while doing so.
