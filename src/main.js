@@ -170,6 +170,7 @@ function applyRosters(g) {
   g.buildEntities();
 }
 
+window.__frame = now => frame(now);   // dev hook: step the loop by hand when rAF is paused (hidden tabs)
 function frame(now) {
   if (!running) return;
   requestAnimationFrame(frame);
