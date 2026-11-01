@@ -40,7 +40,7 @@ export function readMeshInfo(b, off) {
 export function readStream(b, s) {
   if (!s.ranges || !s.verts || s.uvs <= s.verts) return null;
   const n = Math.floor((s.uvs - s.verts) / 16);
-  if (n === 0 || s.verts + n * 16 > b.length) return null;
+  if (n === 0 || s.verts + n * 16 > b.length || s.uvs + n * 12 > b.length || s.ranges + 10 > b.length) return null;
 
   const pos = new Float32Array(n * 3), same = new Uint8Array(n), flag = new Uint8Array(n);
   b.seek(s.verts);

@@ -21,7 +21,9 @@ export function parseAnim(bytes) {
   const flags = [];
   for (let i = 0; i < numBones; i++) { b.u32(); flags.push(b.u32()); b.f32(); b.u32(); b.skip(16); }
   const isBind = flags.every(f => f === 0);
-  if (isBind) b.skip(8);
+  // Some files carry 8 extra bytes before the frame data; detect by what the tracks say must follow.
+  const expected = flags.reduce((s, f) => s + (f === 8 ? numKeys * 20 : f === 2 ? 12 + numKeys * 8 : f === 0 ? 20 : 0), 0);
+  if (b.length - b.pos === expected + 8) b.skip(8);
   const quat = () => [b.u16() * Q - 1, b.u16() * Q - 1, b.u16() * Q - 1, b.u16() * Q - 1];
   const bones = [];
   for (let i = 0; i < numBones; i++) {
