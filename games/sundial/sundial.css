@@ -87,5 +87,5 @@ select{font:16px Arial,sans-serif;padding:8px 10px;background:#1a1e2a;color:#fff
 #missions .match span{width:auto;margin-right:6px}
 #storybox summary{font-family:Impact,sans-serif;letter-spacing:3px;color:var(--teal);cursor:pointer}
 #brief{white-space:pre-wrap;font:13px/1.45 Arial,sans-serif;color:#bcd;max-height:220px;overflow:auto;margin:8px 0;padding:8px 10px;background:#0b0e16;border:1px solid #333}
-@media (max-width:640px){#objectives{right:8px;top:100px;max-width:60%;font-size:12px}}
+@media (max-width:640px){#objectives{right:8px;top:150px;max-width:62%;font-size:12px}}
 .medal.gold{color:#ffd24a}.medal.silver{color:#d8dde6}.medal.bronze{color:#d9924a}

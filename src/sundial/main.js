@@ -308,7 +308,7 @@ function step(dt) {
     player.vel.y -= 16 * dt;
     if (player.grounded && (keys.has('Space') || touch.held.has('jump'))) { player.vel.y = 6; player.grounded = false; }
     if (touch.active) {
-      for (const k of touch.taps.splice(0)) { if (k === 'next') selectWeapon(player.cur + 1); if (k === 'reload') reload(); if (k === 'board') $('#board').hidden = !$('#board').hidden; if (k === 'fire') fireOnce(); }
+      for (const k of touch.taps.splice(0)) { if (k === 'next') selectWeapon(player.cur + 1); if (k === 'reload') reload(); if (k === 'board') { if (world.story) $('#objectives').hidden = !$('#objectives').hidden; else $('#board').hidden = !$('#board').hidden; } if (k === 'fire') fireOnce(); }
     }
     const move = new THREE.Vector3(player.vel.x, 0, player.vel.z).multiplyScalar(dt);
     if (move.lengthSq() > 0) {
@@ -797,7 +797,7 @@ async function enter(levelName, opts = {}) {
     if (match.bag) { scene.remove(match.bag); match.bag = null; }
     player.kills = 0; player.deaths = 0; player.lives = 1; player.bagTime = 0; player.out = false;
     respawn(); updateBoard(); renderObjectives();
-    $('#setup').hidden = true; $('#hud').hidden = false; $('#end').hidden = true; $('#objectives').hidden = false;
+    $('#setup').hidden = true; $('#hud').hidden = false; $('#end').hidden = true; $('#objectives').hidden = touch.active; // phones: TAB button shows the list
     status('Mission loaded.');
     grabMouse();
     msg(arenaName(n, 'st').toUpperCase(), 3000);
