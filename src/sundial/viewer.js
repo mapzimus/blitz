@@ -4,7 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { Pak } from './pak.js';
 import { parseModel } from './model.js';
 import { parseAnim } from './anim.js';
-import { makeBind, Rig, HUMAN, PARENT } from './skeleton.js';
+import { makeBind, Rig, HUMAN, PARENT, RWRIST, gunGrip } from './skeleton.js';
 import { TexSource, modelToGroup } from './build.js';
 import { cache } from './store.js';
 
@@ -30,12 +30,17 @@ scene.add(new THREE.GridHelper(4, 8, 0x335, 0x224));
 function resize() { renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); }
 addEventListener('resize', resize); resize();
 
-let chr, anims = new Map(), bind, texSrc;
-let group = null, rig = null, model = null, bonesHelper = null;
+let chr, anims = new Map(), bind, texSrc, gun, gunTex;
+let group = null, rig = null, model = null, bonesHelper = null, gunObj = null;
 
 async function init() {
-  const [chrBuf, animBuf, feBuf] = await Promise.all([fileBuf('chr.pak'), fileBuf('anim.pak'), fileBuf('fe_anim.pak')]);
+  const [chrBuf, animBuf, feBuf, gunBuf] = await Promise.all([fileBuf('chr.pak'), fileBuf('anim.pak'), fileBuf('fe_anim.pak'), fileBuf('gun.pak')]);
   chr = new Pak(chrBuf, 'chr.pak'); texSrc = new TexSource(chr);
+  gun = new Pak(gunBuf, 'gun.pak'); gunTex = new TexSource(gun);
+  const gs = $('#gun');
+  for (const p of ['', ...gun.list('ob/guns/').filter(p => p.endsWith('_cl.raw'))]) { const o = document.createElement('option'); o.value = p; o.textContent = p ? p.slice(8, -7) : '(none)'; gs.appendChild(o); }
+  gs.value = q.get('gun') ? `ob/guns/${q.get('gun')}_cl.raw` : '';
+  gs.addEventListener('change', loadGun);
   const ap = new Pak(animBuf), fe = new Pak(feBuf);
   const PFX = 'anim/data/ts2/';
   for (const p of ap.list(PFX)) { try { anims.set(p.slice(PFX.length, -4), parseAnim(ap.get(p))); } catch (e) { /* skip */ } }
@@ -58,8 +63,16 @@ function loadModel() {
   group.scale.setScalar(model.scale || 1);
   scene.add(group);
   rig = new Rig(group, model, bind);
-  loadClip();
+  loadClip(); loadGun();
   $('#info').textContent = `${$('#model').value}  parts ${model.parts.length}  scale ${model.scale.toFixed(2)}\npart->bone ${rig.partBone.map((b, i) => `${i}:${HUMAN.names[b]}`).join(' ')}`;
+}
+function loadGun() {
+  if (gunObj && rig) rig.detach(gunObj);
+  gunObj = null;
+  const p = $('#gun').value; if (!p || !rig) return;
+  const gm = parseModel(gun.get(p));
+  gunObj = modelToGroup(gm, gunTex, { lit: true }); gunObj.scale.setScalar(gm.scale || 1);
+  rig.attach(gunObj, RWRIST, gunGrip());
 }
 function loadClip() {
   const c = anims.get($('#clip').value); if (!c) return;

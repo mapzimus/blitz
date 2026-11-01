@@ -82,8 +82,17 @@ export class Rig {
     this.clip = null; this.time = 0; this.loop = true; this.speed = 1; this.done = false;
     this.next = null; this.blend = 0;
     this.rootOffset = new THREE.Vector3();
+    this.attachments = []; // { obj, bone, offset: Matrix4 }
     for (const o of group.children) if (o.isMesh) o.matrixAutoUpdate = false;
   }
+  // Hang an object (a held gun, a hat) off a bone. `offset` is in bone space.
+  attach(obj, bone, offset) {
+    obj.matrixAutoUpdate = false;
+    this.group.add(obj);
+    this.attachments.push({ obj, bone, offset: offset || new THREE.Matrix4() });
+  }
+  detach(obj) { this.attachments = this.attachments.filter(a => a.obj !== obj); this.group.remove(obj); }
+  bonePosition(bone, out) { return (out || new THREE.Vector3()).setFromMatrixPosition(this.world[bone]).multiplyScalar(this.group.scale.x).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.group.rotation.y).add(this.group.position); }
   play(clip, { loop = true, speed = 1, restart = false } = {}) {
     if (this.clip === clip && !restart) { this.loop = loop; this.speed = speed; return; }
     this.clip = clip; this.loop = loop; this.speed = speed; this.time = 0; this.done = false;
@@ -124,9 +133,16 @@ export class Rig {
     }
     worldMatrices(this.locals, this.world);
     for (const o of this.group.children) {
-      if (!o.isMesh) continue;
+      if (!o.isMesh || o.userData.part === undefined) continue;
       const b = this.partBone[o.userData.part] || 0;
       o.matrix.multiplyMatrices(this.world[b], this.bind.inv[b]);
     }
+    for (const a of this.attachments) a.obj.matrix.multiplyMatrices(this.world[a.bone], a.offset);
   }
+}
+
+// Grip for a held gun (ob/guns/*_cl): barrel +Z turned onto the wrist bone's +X, nudged into the palm.
+export const RWRIST = 8, LWRIST = 12, HEAD = 4;
+export function gunGrip() {
+  return new THREE.Matrix4().makeRotationY(Math.PI / 2).premultiply(new THREE.Matrix4().makeTranslation(0.06, -0.02, 0.02));
 }

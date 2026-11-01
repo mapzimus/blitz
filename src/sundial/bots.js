@@ -1,18 +1,19 @@
-// Arena bots: characters from the arena's own pack walking the nav graph and shooting on sight,
+// Arena bots: characters from the arena's own pack walking the nav graph, carrying real weapons,
 // animated with the game's own clips through the 19-bone humanoid rig.
 import * as THREE from 'three';
 import { parseModel } from './model.js';
 import { modelToGroup } from './build.js';
-import { Rig } from './skeleton.js';
+import { Rig, RWRIST, gunGrip } from './skeleton.js';
+import { WEAPONS, BOT_WEAPONS } from './weapons.js';
 
 const DEATH = ['chestshot1_m0', 'chestshot2_m0', 'heartshot_m0', 'shothead_m0', 'shothead2_m0', 'fall_m0', 'stomachhit_m0'];
 const HIT = ['hit_1_m0', 'hit_2_m0', 'hit_3_m0', 'hit_4_m0', 'hit_5_m0', 'Hit_react1_m0', 'Hit_react2_m0'];
 const pick = a => a[Math.floor(Math.random() * a.length)];
 
 export class Bots {
-  constructor({ pak, texSrc, pad, scene, solid, anims, bind, onPlayerHit, onBotKilled }) {
-    this.scene = scene; this.solid = solid; this.onPlayerHit = onPlayerHit; this.onBotKilled = onBotKilled;
-    this.anims = anims; this.bind = bind;
+  constructor({ pak, gun, texSrc, gunTex, pad, scene, solid, anims, bind, onShoot, onBotKilled, names }) {
+    this.scene = scene; this.solid = solid; this.onShoot = onShoot; this.onBotKilled = onBotKilled;
+    this.anims = anims; this.bind = bind; this.gun = gun; this.gunTex = gunTex; this.names = names || [];
     this.ray = new THREE.Raycaster();
     this.list = [];
     this.nodes = new Map();
@@ -22,24 +23,30 @@ export class Bots {
       if (a && b) { a.next.push(b); b.next.push(a); }
     }
     this.nodeList = [...this.nodes.values()].filter(n => n.next.length);
-    // Characters shipped with this arena (skip low-detail and hat variants).
     this.models = pak.list('ob/chrs/').filter(p => /chr\d+\.raw$/.test(p)).map(p => {
-      try { return parseModel(pak.get(p)); } catch (e) { return null; }
-    }).filter(m => m && m.parts.length);
+      try { return { name: p.slice(8, -4), model: parseModel(pak.get(p)) }; } catch (e) { return null; }
+    }).filter(m => m && m.model.parts.length);
     this.texSrc = texSrc;
+    this.gunCache = new Map();
   }
 
   clip(name) { return this.anims && this.anims.get(name); }
+  heldGun(key) {
+    const p = `ob/guns/${key}_cl.raw`;
+    if (!this.gun || !this.gun.has(p)) return null;
+    if (!this.gunCache.has(key)) { const m = parseModel(this.gun.get(p)); const g = modelToGroup(m, this.gunTex, { lit: true }); g.scale.setScalar(m.scale || 1); this.gunCache.set(key, g); }
+    return this.gunCache.get(key).clone();
+  }
 
   spawn(count) {
     if (!this.models.length || !this.nodeList.length) return;
     for (let i = 0; i < count; i++) {
-      const m = this.models[i % this.models.length];
-      const g = modelToGroup(m, this.texSrc, { lit: true });
-      g.scale.setScalar(m.scale || 1);
+      const { name, model } = this.models[i % this.models.length];
+      const g = modelToGroup(model, this.texSrc, { lit: true });
+      g.scale.setScalar(model.scale || 1);
       g.userData.bot = true;
-      const b = { group: g, hp: 100, node: null, target: null, cool: 1 + Math.random(), dead: 0, speed: 2.6 + Math.random() * 0.8, hitFlash: 0, react: 0, rig: null, state: '' };
-      if (this.bind) { b.rig = new Rig(g, m, this.bind); }
+      const b = { id: i, name: this.names[i] || name, group: g, hp: 100, node: null, target: null, cool: 1 + Math.random(), dead: 0, speed: 2.6 + Math.random() * 0.8, hitFlash: 0, react: 0, rig: null, state: '', kills: 0, deaths: 0, weapon: null, gunObj: null };
+      if (this.bind) b.rig = new Rig(g, model, this.bind);
       this.scene.add(g);
       this.list.push(b);
       this.respawn(b);
@@ -54,6 +61,13 @@ export class Bots {
     else b.rig.play(c, opts);
   }
 
+  arm(b, key) {
+    if (b.gunObj && b.rig) b.rig.detach(b.gunObj);
+    b.weapon = key; b.gunObj = null;
+    const g = this.heldGun(key);
+    if (g && b.rig) { b.gunObj = g; b.rig.attach(g, RWRIST, gunGrip()); }
+  }
+
   respawn(b) {
     b.node = this.nodeList[Math.floor(Math.random() * this.nodeList.length)];
     b.target = b.node.next[Math.floor(Math.random() * b.node.next.length)];
@@ -62,20 +76,21 @@ export class Bots {
     b.group.visible = true;
     b.hp = 100; b.dead = 0; b.cool = 1.5; b.react = 0; b.state = '';
     b.group.traverse(o => { if (o.isMesh) o.material.forEach(mt => mt.color.setScalar(1)); });
+    this.arm(b, pick(BOT_WEAPONS));
     this.setAnim(b, 'standpose_m0');
   }
 
-  // Damage from the player. Returns true when the shot killed the bot.
-  hit(b, dmg) {
+  // Damage a bot. Returns true when it died.
+  hit(b, dmg, by) {
     if (b.dead) return false;
     b.hp -= dmg; b.hitFlash = 0.15;
     if (b.hp <= 0) {
-      b.dead = 0.001; this.onBotKilled(b);
+      b.dead = 0.001; b.deaths++;
+      this.onBotKilled(b, by);
       this.setAnim(b, pick(DEATH), { loop: false });
       return true;
     }
-    b.react = 0.5;
-    this.setAnim(b, pick(HIT), { loop: false });
+    if (dmg >= 15) { b.react = 0.45; this.setAnim(b, pick(HIT), { loop: false }); }
     return false;
   }
 
@@ -84,6 +99,8 @@ export class Bots {
     this.ray.set(from, dir); this.ray.far = d;
     return this.ray.intersectObjects(this.solid, false).length === 0;
   }
+
+  muzzle(b) { return b.rig ? b.rig.bonePosition(RWRIST) : b.group.position.clone().setY(b.group.position.y + 1.4); }
 
   update(dt, player) {
     const eye = new THREE.Vector3(), pe = player.pos.clone(); pe.y += player.eye;
@@ -97,21 +114,24 @@ export class Bots {
         if (b.dead > 4.5) this.respawn(b);
         continue;
       }
-      if (b.hitFlash > 0) { b.hitFlash -= dt; const k = b.hitFlash > 0 ? 3 : 1; g.traverse(o => { if (o.isMesh) o.material.forEach(mt => mt.color.setScalar(k)); }); }
-      if (b.react > 0) { b.react -= dt; continue; } // flinching: stands still
+      if (b.hitFlash > 0) { b.hitFlash -= dt; const k = b.hitFlash > 0 ? 3 : 1; g.traverse(o => { if (o.isMesh && o.userData.part !== undefined) o.material.forEach(mt => mt.color.setScalar(k)); }); }
+      if (b.react > 0) { b.react -= dt; continue; }
 
       eye.copy(g.position); eye.y += 1.6;
       const toPlayer = pe.clone().sub(eye); const dist = toPlayer.length();
-      const sees = dist < 30 && this.canSee(eye, pe);
+      const sees = !player.dead && dist < 35 && this.canSee(eye, pe);
+      const w = WEAPONS[b.weapon] || WEAPONS.uzi;
       if (sees) {
         g.rotation.y = Math.atan2(toPlayer.x, toPlayer.z);
         b.cool -= dt;
         if (b.cool <= 0) {
-          b.cool = 0.7 + Math.random() * 0.6;
-          const p = Math.max(0.15, 0.6 - dist / 60) * (player.vel.lengthSq() > 1 ? 0.6 : 1);
-          this.onPlayerHit(b, Math.random() < p ? 9 : 0);
+          // Bots fire in bursts at a fraction of the weapon's rate.
+          b.cool = w.auto ? 60 / w.rpm * 2.5 : 60 / w.rpm * 1.6 + 0.3;
+          const acc = Math.max(0.12, 0.55 - dist / 70) * (player.vel.lengthSq() > 1 ? 0.65 : 1);
+          this.onShoot(b, w, this.muzzle(b), pe, Math.random() < acc);
         }
-        if (dist > 8) this.walk(b, dt); else this.setAnim(b, 'fire_pose_m0');
+        const keep = w.kind === 'rocket' || w.kind === 'grenade' ? 10 : w.kind === 'beam' ? 3 : 7;
+        if (dist > keep) this.walk(b, dt); else this.setAnim(b, 'fire_pose_m0');
       } else {
         b.cool = Math.max(b.cool, 0.4);
         this.walk(b, dt);
@@ -139,4 +159,13 @@ export class Bots {
 
   get groups() { return this.list.filter(b => !b.dead).map(b => b.group); }
   find(obj) { let o = obj; while (o && !o.userData.bot) o = o.parent; return this.list.find(b => b.group === o); }
+  // Splash damage from an explosion.
+  splash(pos, radius, dmg, by) {
+    for (const b of this.list) {
+      if (b.dead) continue;
+      const c = b.group.position.clone(); c.y += 0.9;
+      const d = c.distanceTo(pos);
+      if (d < radius) this.hit(b, Math.round(dmg * (1 - d / radius * 0.7)), by);
+    }
+  }
 }
