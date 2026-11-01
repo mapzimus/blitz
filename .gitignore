@@ -16,3 +16,22 @@ node_modules/
 # Decoded asset packs and Python caches
 pack/
 __pycache__/
+# Blitz 2002 disc formats and decoded exports (loader code only ships; data stays local)
+*.rtd
+*.dff
+*.DFF
+*.ms2
+*.mss
+*.msb
+*.ban
+*.rsc
+*.rst
+*.cap
+*.trv
+*.wip
+*.wom
+*.ZIP
+*.ZIH
+*.wav
+*.png
+!src/hub/**/*.png
