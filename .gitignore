@@ -1,0 +1,9 @@
+.remember/
+*.iso
+*.bin
+*.cue
+*.gcm
+*.chd
+*.zip
+*.7z
+node_modules/

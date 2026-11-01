@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PICK ONE</title>
+<meta name="robots" content="noindex">
+<link rel="stylesheet" href="src/hub/hub.css">
+</head>
+<body>
+  <a class="back" href="index.html">&larr; OUT</a>
+  <h1>PICK <span>ONE</span></h1>
+  <p class="tag">SAY THE WORD</p>
+  <div class="grid" id="grid"></div>
+  <p class="fine">Tiles are built from <code>src/hub/games.js</code>. Add an entry there to add a door.</p>
+<script type="module">
+  import { GAMES } from './src/hub/games.js';
+  const grid = document.getElementById('grid');
+  for (const g of GAMES) {
+    const a = document.createElement('a');
+    a.className = 'tile' + (g.ready ? ' ready' : '');
+    a.href = g.path;
+    a.style.setProperty('--accent', g.accent || '#ffb03b');
+    // First letter gets the accent color so each code word reads as a logo, not a label.
+    const code = g.code.toUpperCase();
+    a.innerHTML =
+      `<span class="badge">${g.ready ? 'OPEN' : 'SOON'}</span>` +
+      `<div class="code"><b>${code[0]}</b>${code.slice(1)}</div>` +
+      `<div class="hint">${g.hint || ''}</div>`;
+    grid.appendChild(a);
+  }
+</script>
+</body>
+</html>

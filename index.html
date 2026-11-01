@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>THE BACK ROOM</title>
+<meta name="robots" content="noindex">
+<link rel="stylesheet" href="src/hub/hub.css">
+</head>
+<body>
+  <h1>THE <span>BACK</span> ROOM</h1>
+  <p class="tag">YOU KNOW WHY YOU'RE HERE</p>
+  <a class="enter" href="hub.html" id="enter">ENTER</a>
+  <p class="fine">Press Enter or Space to continue.</p>
+<script>
+  // Keyboard gate: Enter / Space / Start-ish keys go in.
+  addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); location.href = 'hub.html'; }
+  });
+</script>
+</body>
+</html>

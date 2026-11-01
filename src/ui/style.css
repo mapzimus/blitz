@@ -1,0 +1,54 @@
+:root{--amber:#ffb03b;--red:#d62828;--blue:#1d4ed8;--ink:#0b0d12;--chrome:#e8e8ea;}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:#000;color:var(--chrome);font-family:Impact,"Arial Narrow Bold","Helvetica Neue",Arial,sans-serif;overflow:hidden;user-select:none}
+#app{position:relative;width:100vw;height:100vh}
+#gl{position:absolute;inset:0;width:100%;height:100%;display:block}
+#hud,#overlay{position:absolute;inset:0;pointer-events:none}
+#overlay>*{pointer-events:auto}
+.scorebar{position:absolute;left:50%;top:10px;transform:translateX(-50%);display:flex;gap:0;align-items:stretch;filter:drop-shadow(0 4px 10px #000c)}
+.scorebar .team{display:flex;align-items:center;gap:10px;padding:6px 16px;font-size:28px;letter-spacing:1px;min-width:170px;color:#fff;text-shadow:2px 2px 0 #000}
+.scorebar .team .abbr{font-size:22px;opacity:.9}
+.scorebar .team .pts{font-size:34px;margin-left:auto;font-variant-numeric:tabular-nums}
+.scorebar .mid{background:linear-gradient(#2a2d36,#111318);padding:6px 18px;text-align:center;border-top:3px solid var(--amber);border-bottom:3px solid var(--amber);min-width:150px}
+.scorebar .mid .clock{font-size:30px;color:var(--amber);font-variant-numeric:tabular-nums}
+.scorebar .mid .qtr{font-size:14px;letter-spacing:2px;color:#bbb}
+.downbar{position:absolute;left:50%;top:76px;transform:translateX(-50%);background:#111318e6;border:2px solid #444;padding:4px 16px;font-size:20px;letter-spacing:1px;color:#fff;text-shadow:1px 1px 0 #000}
+.turbo{position:absolute;left:24px;bottom:24px;width:220px;height:18px;border:2px solid #fff;background:#000a;transform:skewX(-20deg)}
+.turbo i{display:block;height:100%;background:linear-gradient(90deg,#ff4d00,var(--amber));transition:width .05s linear}
+.turbo.p2{left:auto;right:24px}
+.fire{position:absolute;left:24px;bottom:50px;font-size:22px;color:#ff6a00;text-shadow:0 0 12px #ff6a00,1px 1px 0 #000;animation:flick .25s infinite alternate}
+.fire.p2{left:auto;right:24px}
+@keyframes flick{from{opacity:.75}to{opacity:1}}
+.banner{position:absolute;left:50%;top:40%;transform:translate(-50%,-50%) skewX(-8deg);font-size:min(12vw,96px);color:#fff;text-shadow:4px 4px 0 var(--red),8px 8px 0 #000;letter-spacing:4px;white-space:nowrap;animation:slam .35s cubic-bezier(.2,1.4,.4,1)}
+.banner small{display:block;font-size:.35em;color:var(--amber);text-shadow:2px 2px 0 #000;letter-spacing:6px}
+@keyframes slam{from{transform:translate(-50%,-50%) skewX(-8deg) scale(3);opacity:0}to{transform:translate(-50%,-50%) skewX(-8deg) scale(1);opacity:1}}
+.screen{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(ellipse at 50% 30%,#1b2440 0%,#05070c 70%)}
+.screen h1{font-size:min(14vw,120px);line-height:.9;color:#fff;text-shadow:5px 5px 0 var(--red),10px 10px 0 #000;letter-spacing:6px;transform:skewX(-8deg)}
+.screen h1 span{color:var(--amber)}
+.screen h2{font-size:28px;letter-spacing:4px;color:#aab;margin:8px 0 28px}
+.menu{display:flex;flex-direction:column;gap:10px;min-width:360px}
+.menu button,.btn{font:inherit;font-size:30px;letter-spacing:3px;padding:10px 24px;background:linear-gradient(#2b3040,#161a24);color:#fff;border:3px solid #555;cursor:pointer;text-align:left;transform:skewX(-8deg);transition:.08s}
+.menu button:hover,.menu button.sel,.btn:hover{border-color:var(--amber);color:var(--amber);background:linear-gradient(#3a2a10,#1a1408)}
+.menu button:disabled{opacity:.4;cursor:default}
+.small{font-family:Arial,sans-serif;font-size:14px;color:#9aa;letter-spacing:0;max-width:720px;text-align:center;line-height:1.5;margin-top:20px}
+.small code{background:#222;padding:2px 6px;color:#fff}
+.teams{display:grid;grid-template-columns:repeat(8,1fr);gap:8px;max-width:960px;padding:0 20px}
+.teams button{font:inherit;font-size:22px;padding:14px 4px;border:3px solid #333;color:#fff;cursor:pointer;text-shadow:1px 1px 0 #000;letter-spacing:1px}
+.teams button.sel{outline:4px solid var(--amber);transform:scale(1.08)}
+.teams button.p2{outline:4px solid #4ea1ff}
+.pick{position:absolute;inset:0;display:flex;align-items:flex-end;justify-content:center;padding-bottom:40px;background:linear-gradient(transparent 30%,#000c)}
+.pick .box{background:#0b0d12f2;border:3px solid #444;padding:14px 18px;min-width:620px}
+.pick h3{font-size:22px;letter-spacing:3px;color:var(--amber);margin-bottom:8px;display:flex;justify-content:space-between}
+.pick h3 small{color:#889;font-size:14px;letter-spacing:1px;font-family:Arial}
+.plays{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.plays button{font:inherit;font-size:20px;letter-spacing:1px;padding:8px 6px;background:#1a1e2a;border:2px solid #333;color:#fff;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px}
+.plays button:hover,.plays button.sel{border-color:var(--amber);background:#2a2210}
+.plays canvas{width:150px;height:84px;background:#0f3a1e;border:1px solid #2c5}
+.pick .foot{margin-top:8px;font-family:Arial;font-size:13px;color:#889;display:flex;justify-content:space-between}
+.pick .foot b{color:#fff}
+.toast{position:absolute;left:50%;bottom:90px;transform:translateX(-50%);background:#000c;border:2px solid var(--amber);padding:6px 16px;font-size:22px;letter-spacing:2px;color:#fff}
+.center{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center}
+.lobby input{font:inherit;font-size:28px;letter-spacing:4px;padding:8px 14px;background:#000;color:var(--amber);border:3px solid #555;width:320px;text-align:center;text-transform:uppercase}
+.code{font-size:56px;color:var(--amber);letter-spacing:10px;text-shadow:3px 3px 0 #000;margin:10px 0}
+.icon{position:absolute;width:34px;height:34px;border-radius:50%;border:3px solid #fff;display:flex;align-items:center;justify-content:center;font-size:20px;color:#fff;text-shadow:1px 1px 0 #000;transform:translate(-50%,-100%);box-shadow:0 0 0 2px #000}
+.pbp{position:absolute;left:50%;bottom:30px;transform:translateX(-50%);font-family:Arial;font-size:16px;color:#ddd;background:#0009;padding:4px 14px;border-left:4px solid var(--amber)}
