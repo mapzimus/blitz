@@ -7,3 +7,9 @@
 *.zip
 *.7z
 node_modules/
+# Extracted PS2 / Free Radical archives (copyrighted game data, never commit)
+*.PAK
+*.pak
+*.MIB
+*.VAG
+*.PSS
