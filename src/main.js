@@ -19,14 +19,19 @@ export const VARIANTS = {
   house: { ...RULES, name: 'HOUSE RULES', firstDownYards: 25, onFireStreak: 2, playClock: 12 },
 };
 // FIREFLY keeps your own tweaks on top of the house set, saved in this browser (see rulesEditor).
+// CPU difficulty: a speed/power multiplier on the computer's players, saved per door.
+const DIFF_KEY = `${cfg.code}.difficulty`;
+const DIFFS = [['EASY', 0.88], ['NORMAL', 1], ['HARD', 1.08], ['BLITZ', 1.16]];
+let diff = 1; try { diff = Math.min(DIFFS.length - 1, Math.max(0, parseInt(localStorage.getItem(DIFF_KEY) ?? '1', 10) || 0)); } catch { diff = 1; }
 const RULES_KEY = `${cfg.code}.rules`;
 const getKnob = (r, k) => k.startsWith('points.') ? r.points[k.slice(7)] : r[k];
 function loadRules() {
   const base = VARIANTS[cfg.variant] || RULES;
-  if (cfg.variant !== 'house') return base;
+  if (cfg.variant !== 'house') return { ...base, cpuSkill: DIFFS[diff][1] };
   let o = {}; try { o = JSON.parse(localStorage.getItem(RULES_KEY) || '{}') || {}; } catch { o = {}; }
   const r = { ...base, points: { ...base.points } };
   for (const [k, v] of Object.entries(o)) { if (k.startsWith('points.')) r.points[k.slice(7)] = v; else if (k in r) r[k] = v; }
+  r.cpuSkill = DIFFS[diff][1];
   return r;
 }
 let rules = loadRules();
@@ -89,6 +94,7 @@ function title() {
     { label: '2 PLAYER', run: () => teamSelect(2) },
     { label: 'WATCH CPU DEMO', run: () => { seasonGame = null; startGame([5, 9], [false, false]); } },
     { label: season.active ? 'CONTINUE SEASON' : 'SEASON', run: () => seasonScreen() },
+    { label: 'CPU: ' + DIFFS[diff][0], run: () => { diff = (diff + 1) % DIFFS.length; try { localStorage.setItem(DIFF_KEY, String(diff)); } catch { /* session only */ } rules = loadRules(); title(); } },
     ...(cfg.variant === 'house' ? [{ label: 'HOUSE RULES', run: () => rulesEditor() }] : []),
     { label: assets.ready ? 'DISC DATA LOADED ✓' : (assets.canResume ? 'RESUME DISC DATA' : 'LOAD DISC DATA'), run: () => (assets.canResume && !assets.ready ? resumeDisc() : loadDisc()) },
     { label: 'CONTROLS', run: () => controls() },
@@ -319,6 +325,7 @@ function drain() {
   for (const ev of game.events.splice(0)) {
     if (ev.type === 'banner') hud.showBanner(ev.text, ev.sub);
     if (ev.type === 'final') setTimeout(finalScreen, 2500);
+    if (ev.type === 'sound') { if (ev.name === 'bighit') scene.shake = 0.6; else if (ev.name === 'hit') scene.shake = 0.2; else if (ev.name === 'touchdown') scene.shake = 0.25; }
     sound.onEvent(ev, game);
   }
 }
@@ -359,6 +366,17 @@ function finalScreen() {
   const w = game.score[0] === game.score[1] ? null : game.score[0] > game.score[1] ? 0 : 1;
   const s = screen(`<h2>FINAL</h2><h1 style="font-size:min(10vw,80px)">${esc(game.teams[0].abbr)} ${game.score[0]} <span>·</span> ${esc(game.teams[1].abbr)} ${game.score[1]}</h1><h2>${w === null ? 'TIE' : esc(game.teams[w].city.toUpperCase()) + ' WINS'}</h2>`);
   s.style.background = '#000a';
+  const st = game.stats, P = [...st.players.values()];
+  const top = (key, t) => { const p = P.filter(x => x.team === t && x[key] > 0).sort((a, b) => b[key] - a[key])[0]; return p ? `${esc(p.name)} · ${Math.round(p[key])}` : '-'; };
+  const row = (l, a, b) => `<tr><td>${l}</td><td>${a}</td><td>${b}</td></tr>`;
+  const box = document.createElement('div'); box.className = 'boxscore';
+  box.innerHTML = `<table><tr><th></th><th>${esc(game.teams[0].abbr)}</th><th>${esc(game.teams[1].abbr)}</th></tr>` +
+    row('PASSING', ...[0, 1].map(t => `${Math.round(st.team[t].passYds)} YDS · ${st.team[t].comp}/${st.team[t].att}`)) +
+    row('RUSHING', ...[0, 1].map(t => `${Math.round(st.team[t].rushYds)} YDS`)) +
+    row('HITS', st.hits[0], st.hits[1]) + row('TURNOVERS', st.team[0].int + st.team[0].fum, st.team[1].int + st.team[1].fum) +
+    row('TOP PASSER', top('passYds', 0), top('passYds', 1)) + row('TOP RUSHER', top('rushYds', 0), top('rushYds', 1)) +
+    row('TOP RECEIVER', top('recYds', 0), top('recYds', 1)) + row('TOP TACKLER', top('tackles', 0), top('tackles', 1)) + row('TOUCHDOWNS', top('td', 0), top('td', 1)) + '</table>';
+  s.appendChild(box);
   const ids = game.teams.map(t => t.id), hum = game.human.slice();
   if (seasonGame) {
     season.record(seasonGame.ids, game.score.slice()); seasonGame = null;

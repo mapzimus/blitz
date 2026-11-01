@@ -17,6 +17,7 @@ export class Hud {
       <div class="turbo p1"><i></i></div><div class="turbo p2"><i></i></div>
       <div class="fire p1" hidden>ON FIRE</div><div class="fire p2" hidden>ON FIRE</div>
       <div class="icons"></div><div class="pbp"></div>
+      <div class="tag" hidden></div>
       <div class="kmeter" hidden><div class="sweet"></div><div class="fill"></div><span>KICK · PRESS A</span></div>`;
     this.q = s => this.el.querySelector(s);
     this.icons = this.q('.icons');
@@ -41,6 +42,11 @@ export class Hud {
       this.q('.fire.p' + (t + 1)).hidden = !g.fire[t];
     }
     this.q('.pbp').textContent = g.pbp;
+    const tag = this.q('.tag'), car = g.carrier();
+    if (car && car.name && (g.phase === PHASE.LIVE || g.phase === PHASE.DEAD)) {
+      const [x, y, vis] = this.scene.project(car.x, car.y, 2.6);
+      tag.hidden = !vis; tag.style.left = x + 'px'; tag.style.top = y + 'px'; tag.textContent = `#${car.num} ${car.name}`; tag.style.borderColor = g.teams[car.team].primary;
+    } else tag.hidden = true;
     const km = this.q('.kmeter'); km.hidden = !g.meter; if (g.meter) km.querySelector('.fill').style.width = (g.meter.val * 100) + '%';
     // banner lifetime
     if (this.banner) { this.bannerT -= dt; if (this.bannerT <= 0) { this.banner.remove(); this.banner = null; } }

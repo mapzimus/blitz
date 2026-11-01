@@ -33,6 +33,7 @@ export const RULES = {
   lateHitWindow: 2.0,      // seconds after whistle you may still pile on
   speedScale: 1,           // everyone's top speed (house rules knob)
   kickoffs: true,          // false: drives start at the 20 after every score
+  cpuSkill: 1,             // CPU speed/power multiplier (difficulty)
 };
 
 // Movement tuning (arcade fast). Base speeds in yd/s.

@@ -35,12 +35,19 @@ export class Game {
     this.offPlay = null; this.defPlay = null; this.offPick = null; this.defPick = null;
     this.playType = 'pass'; this.handedOff = false; this.caught = false; this.liveT = 0;
     this.deadT = 0; this.deadReason = ''; this.deadSpot = null; this.whistleX = 0;
-    this.stats = { plays: 0, hits: [0, 0] };
+    this.stats = { plays: 0, hits: [0, 0], team: [0, 1].map(() => ({ passYds: 0, rushYds: 0, att: 0, comp: 0, int: 0, fum: 0 })), players: new Map() };
+    this.catcher = null;
     this.kickoffTeam = 1;          // team 1 kicks to open; home receives
     this.setupKickoff(1);
   }
 
   // ---------- helpers ----------
+  stat(e, key, v = 1) {
+    if (!e || !e.name) return;
+    const k = e.team + ':' + e.name; let p = this.stats.players.get(k);
+    if (!p) { p = { team: e.team, name: e.name, num: e.num, pos: e.role, passYds: 0, rushYds: 0, recYds: 0, td: 0, tackles: 0, ints: 0 }; this.stats.players.set(k, p); }
+    p[key] = (p[key] || 0) + v;
+  }
   offense() { return this.ents[this.poss]; }
   defense() { return this.ents[1 - this.poss]; }
   carrier() { const h = this.ball.holder; return h ? this.ents[h.team][h.idx] : null; }
@@ -61,6 +68,7 @@ export class Game {
       const r = isOff ? this.teams[t].roster.offense : this.teams[t].roster.defense;
       this.ents[t] = roles.map((role, i) => {
         const e = makeEntity(t, i, role, r[i]);
+        if (!this.human[t] && this.rules.cpuSkill) { e.spd *= this.rules.cpuSkill; e.pow *= this.rules.cpuSkill; }
         const prev = this.ents[t][i];
         if (prev) { e.turbo = prev.turbo; e.x = prev.x; e.y = prev.y; e.face = prev.face; }   // stay where the last play ended
         else { e.turbo = this.rules.turboMax; e.x = this.los || 50; e.y = 10 + i * 5; }
@@ -174,7 +182,7 @@ export class Game {
     if (this.phase !== PHASE.PRESNAP) return;
     const off = this.offense(), def = this.defense();
     const dir = this.dir[this.poss];
-    this.phase = PHASE.LIVE; this.liveT = 0; this.handedOff = false; this.caught = false; this.qbT = 0; this.intercepted = false;
+    this.phase = PHASE.LIVE; this.liveT = 0; this.handedOff = false; this.caught = false; this.catcher = null; this.qbT = 0; this.intercepted = false;
     this.clockStopped = false; this.stats.plays++;
     this.giveBall(this.poss, 0);
     const pl = this.offPlay;
@@ -265,6 +273,13 @@ export class Game {
     if (reason === 'score' || reason === 'touchback' || reason === 'safety') this.clockStopped = true;
     if (this.special === 'kickoff' || this.special === 'punt') this.clockStopped = reason !== 'tackle';
     const c = this.carrier();
+    if (c && !this.special && !this.intercepted && (reason === 'tackle' || reason === 'oob' || reason === 'score')) {
+      const gain = (x - this.los) * dir, b = this.ball;
+      if (this.caught && this.catcher && b.thrower) {
+        this.stat(this.ents[b.thrower.team][b.thrower.idx], 'passYds', gain); this.stat(this.ents[this.catcher.team][this.catcher.idx], 'recYds', gain); this.stats.team[this.poss].passYds += gain;
+      } else { this.stat(c, 'rushYds', gain); this.stats.team[this.poss].rushYds += gain; }
+      if (reason === 'score') this.stat(c, 'td');
+    }
     if (c) setState(c, 'tackled', 1.2);
     if (reason === 'tackle' && this.intercepted) this.say('Return ends at the ' + Math.round(this.yardline(x, this.poss)) + '.');
     else if (reason === 'tackle' && !this.special) { const gain = (x - this.los) * dir; this.say(gain >= 0 ? `Tackled. Gain of ${gain.toFixed(0)}.` : `Tackled for a loss of ${(-gain).toFixed(0)}.`); }

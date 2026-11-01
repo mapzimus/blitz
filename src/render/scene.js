@@ -158,6 +158,11 @@ export class Scene {
     const showMarks = !g.special && (g.phase === PHASE.PLAYCALL || g.phase === PHASE.PRESNAP || g.phase === PHASE.LIVE || g.phase === PHASE.DEAD);
     this.los.visible = showMarks; this.fdl.visible = showMarks && g.firstDownX !== g.goalLineFor(g.poss);
     this.los.position.x = g.los; this.los.position.z = FIELD.mid; this.fdl.position.x = g.firstDownX; this.fdl.position.z = FIELD.mid;
+    // flames: the on-fire team's ball trails fire (carried or in the air)
+    if (!this.flames) this.flames = new Flames(this.scene);
+    const fireTeam = holder ? holder.team : (b.inAir && b.thrower ? b.thrower.team : -1);
+    if (fireTeam >= 0 && g.fire[fireTeam] && g.phase === PHASE.LIVE) this.flames.spawn(this.ball.position.x, this.ball.position.y, this.ball.position.z, 5);
+    this.flames.update(dt);
     this.updateCamera(g, dt);
     this.renderer.render(this.scene, this.camera);
   }
@@ -182,6 +187,7 @@ export class Scene {
     this.camPos.x = lerp(this.camPos.x, px, k); this.camPos.y = lerp(this.camPos.y, ph, k); this.camPos.z = lerp(this.camPos.z, py, k);
     this.camLook.x = lerp(this.camLook.x, fx, k); this.camLook.y = lerp(this.camLook.y, lh, k); this.camLook.z = lerp(this.camLook.z, fy, k);
     this.camera.position.copy(this.camPos); this.camera.lookAt(this.camLook);
+    if (this.shake > 0) { const s = this.shake; this.camera.position.x += (Math.random() - 0.5) * s; this.camera.position.y += (Math.random() - 0.5) * s * 0.6; this.shake = Math.max(0, s - dt * 1.8); }
   }
 }
 
@@ -305,4 +311,33 @@ function crowdCanvas() {
   x.fillStyle = '#1a1c24'; x.fillRect(0, 0, 256, 128);
   for (let i = 0; i < 2600; i++) { x.fillStyle = `hsl(${Math.random() * 360},${30 + Math.random() * 40}%,${25 + Math.random() * 45}%)`; x.fillRect(Math.random() * 256, Math.random() * 128, 3, 4); }
   return c;
+}
+
+// ---------- flames (on fire) ----------
+class Flames {
+  constructor(parent, n = 160) {
+    this.n = n; this.pos = new Float32Array(n * 3); this.col = new Float32Array(n * 3); this.vel = new Float32Array(n * 3); this.life = new Float32Array(n); this.i = 0;
+    for (let k = 0; k < n; k++) this.pos[k * 3 + 1] = -5;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(this.col, 3));
+    this.points = new THREE.Points(geo, new THREE.PointsMaterial({ size: 0.55, vertexColors: true, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending }));
+    this.points.frustumCulled = false; parent.add(this.points);
+  }
+  spawn(x, y, z, k = 4) {
+    for (let j = 0; j < k; j++) {
+      const i = this.i = (this.i + 1) % this.n;
+      this.pos[i * 3] = x + (Math.random() - 0.5) * 0.5; this.pos[i * 3 + 1] = y + Math.random() * 0.4; this.pos[i * 3 + 2] = z + (Math.random() - 0.5) * 0.5;
+      this.vel[i * 3] = (Math.random() - 0.5) * 1.5; this.vel[i * 3 + 1] = 2.5 + Math.random() * 2; this.vel[i * 3 + 2] = (Math.random() - 0.5) * 1.5;
+      this.life[i] = 0.45 + Math.random() * 0.3;
+    }
+  }
+  update(dt) {
+    for (let i = 0; i < this.n; i++) {
+      if (this.life[i] <= 0) { this.pos[i * 3 + 1] = -5; continue; }
+      this.life[i] -= dt; const l = Math.max(0, this.life[i] / 0.75);
+      this.pos[i * 3] += this.vel[i * 3] * dt; this.pos[i * 3 + 1] += this.vel[i * 3 + 1] * dt; this.pos[i * 3 + 2] += this.vel[i * 3 + 2] * dt;
+      this.col[i * 3] = 1; this.col[i * 3 + 1] = 0.25 + 0.6 * l; this.col[i * 3 + 2] = 0.05 * l;
+    }
+    this.points.geometry.attributes.position.needsUpdate = true; this.points.geometry.attributes.color.needsUpdate = true;
+  }
 }

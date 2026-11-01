@@ -153,6 +153,7 @@ function throwPass(g, qb, target) {
   const off = g.offense();
   const r = off[target];
   if (!r || r === qb) return;
+  g.stats.team[g.poss].att++;
   const dir = g.dir[g.poss];
   // lead the receiver along his velocity by the flight time
   const d0 = dist(qb, r);
@@ -280,12 +281,13 @@ function catchBall(g, e) {
   const b = g.ball;
   const wasOff = e.team === g.poss;
   g.giveBall(e.team, e.idx);
+  if (wasOff && (b.kind === 'bullet' || b.kind === 'lob') && !b.lateral) { g.catcher = { team: e.team, idx: e.idx }; g.stats.team[e.team].comp++; }
   b.lateral = false;
   e.task = 'carry'; e.route = null;
   if (e.state !== 'jump' && e.state !== 'dive') setState(e, 'catch', 0.3);
   if (!wasOff) {
     // interception, or a punt fielded by the return man: possession flips
-    if (b.kind === 'bullet' || b.kind === 'lob') { g.banner('INTERCEPTION!', ''); g.say('Picked off!'); g.emit('sound', { name: 'pick' }); g.special = null; g.intercepted = true; }
+    if (b.kind === 'bullet' || b.kind === 'lob') { g.banner('INTERCEPTION!', ''); g.say('Picked off!'); g.emit('sound', { name: 'pick' }); g.stats.team[1 - e.team].int++; g.stat(e, 'ints'); g.special = null; g.intercepted = true; }
     g.poss = e.team;
     g.caught = true; g.handedOff = true;
     for (const t of g.ents) for (const o of t) { if (o.team === e.team) { if (o !== e) o.task = 'block'; } else o.task = 'pursue'; }
@@ -384,10 +386,11 @@ function resolveContact(g, off, def, dt) {
       g.emit('sound', { name: big ? 'bighit' : 'hit' });
       if (Math.random() < (big ? 0.08 : 0.025) && !g.special) {
         g.dropBall(); const b = g.ball; b.loose = true; b.vx = (Math.random() - 0.5) * 6; b.vy = (Math.random() - 0.5) * 6; b.vz = 7; b.bounces = 0;
-        setState(c, 'down', 1.0); setState(d, 'down', 0.6); g.say('FUMBLE!'); g.emit('sound', { name: 'fumble' });
+        setState(c, 'down', 1.0); setState(d, 'down', 0.6); g.say('FUMBLE!'); g.stats.team[c.team].fum++; g.emit('sound', { name: 'fumble' });
         return;
       }
       setState(d, d.state === 'dive' ? 'down' : 'hit', 0.8);
+      g.stat(d, 'tackles');
       finishCarrier(g, c, 'tackle');
       if (big) g.banner(['BIG HIT!', 'CRUSHED!', 'OUCH!', 'PANCAKE!'][(Math.random() * 4) | 0], '');
       return;
