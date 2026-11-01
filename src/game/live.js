@@ -192,7 +192,7 @@ function doKick(g, k) {
   const p = g.special === 'pat' ? 0.96 : clamp(1.15 - distYds / 62, 0.05, 0.97);
   const good = Math.random() < p;
   const ty = FIELD.mid + (good ? (Math.random() * 6 - 3) : (Math.random() < 0.5 ? -13 : 13));
-  g.throwBall(k, goal + dir * 9, ty, 'kick', 1.5, 48);
+  g.throwBall(k, goal + dir * 22, ty, 'kick', 2.1, 52);
   g.ball.target = -1; g.ball.fgGood = good;
   g.emit('sound', { name: 'kick' });
 }
@@ -209,7 +209,7 @@ function flyBall(g, dt) {
     const goal = g.goalLineFor(g.poss), dir = g.dir[g.poss];
     if ((b.x - goal) * dir >= 0 || b.z <= 0) {
       b.inAir = false;
-      if (b.fgGood && b.z > 3) { g.endPlay('score', goal, b.y); g.say(g.special === 'pat' ? 'Extra point is good!' : 'Field goal is GOOD!'); g.emit('sound', { name: 'fgood' }); }
+      if (b.fgGood) { g.endPlay('score', goal, b.y); g.say(g.special === 'pat' ? 'Extra point is good!' : 'Field goal is GOOD!'); g.emit('sound', { name: 'fgood' }); }
       else { g.endPlay('miss', g.los, b.y); g.emit('sound', { name: 'doink' }); }
       return;
     }
