@@ -477,18 +477,24 @@ function onBotKilled(bot, by) {
   if (match.mode === 'dm') { if (by === 'player' && player.kills >= match.limit) endMatch(); else if (by && by.kills >= match.limit) endMatch(); }
   updateHud(); updateBoard();
 }
-function onBotShoot(bot, w, from, target, hits) {
+function onBotShoot(bot, w, from, target, hits, who) {
   sfx.play(w.sfx, { pos: from, listener: camera.position, volume: w.quiet ? 0.3 : 0.55, rate: 0.95 + Math.random() * 0.1 });
   const dir = target.clone().sub(from).normalize();
   if (w.kind === 'rocket' || w.kind === 'grenade') { world.proj.fire({ ...w, key: bot.weapon }, from, dir, bot, target.clone()); return; }
+  if (w.tracer) {
+    const g = new THREE.BufferGeometry().setFromPoints([from, target]);
+    const l = new THREE.Line(g, tracerMat.clone()); l.material.color.set(w.tracer); l.userData.t = 0; scene.add(l); tracers.push(l);
+  }
   if (hits) {
-    // Friendly fire between bots: whoever stands in the way takes it first.
+    const dmg = Math.round(w.dmg * (w.pellets ? w.pellets * 0.4 : 1));
+    // Whoever stands in the way takes it first.
     ray.set(from, dir); ray.far = 60;
     const others = world.bots.list.filter(b => b !== bot && !b.dead).map(b => b.group);
     const hs = ray.intersectObjects([...others, ...world.solid], true);
     const dist = from.distanceTo(target);
-    if (hs.length && hs[0].distance < dist - 0.5) { const ob = world.bots.find(hs[0].object); if (ob) world.bots.hit(ob, w.dmg * (w.pellets || 1) * 0.5, bot); return; }
-    damagePlayer(Math.round(w.dmg * (w.pellets ? w.pellets * 0.4 : 1)), bot);
+    if (hs.length && hs[0].distance < dist - 0.5) { const ob = world.bots.find(hs[0].object); if (ob) world.bots.hit(ob, Math.round(dmg * 0.6), bot); return; }
+    if (who === 'player') damagePlayer(dmg, bot);
+    else if (who) world.bots.hit(who, Math.round(dmg * 0.6), bot);
   }
 }
 function takePickup(p) {
@@ -600,6 +606,7 @@ async function enter(levelName) {
   world.pickups.place(spots === world.itemSpots ? spots.length : Math.min(24, Math.max(8, Math.floor(world.nodes.length / 6))));
   world.bots = new Bots({ pak, gun: world.gun, texSrc, gunTex: world.gunTex, pad: world.pad, scene, solid: world.solid, anims, bind, onShoot: onBotShoot, onBotKilled, names: BOT_NAMES.slice().sort(() => Math.random() - 0.5) });
   world.bots.spawn(Math.min(parseInt($('#botcount').value) || 4, Math.max(1, world.bots.models.length * 2)));
+  world.bots.skill = parseFloat($('#skill').value) || 1;
 
   match.mode = $('#mode').value; match.limit = parseInt($('#killlimit').value) || 10; match.left = match.time; match.over = false;
   match.lives = match.mode === 'elim' ? Math.max(1, Math.min(9, Math.round(match.limit / 3))) : 3;

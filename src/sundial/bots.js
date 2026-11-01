@@ -128,8 +128,26 @@ export class Bots {
     return null;
   }
 
+  // Nearest living enemy a bot can see: the player or another bot. Returns { who, pos, dist } or null.
+  pickTarget(b, eye, player) {
+    let best = null;
+    if (!player.dead) {
+      const pe = player.pos.clone(); pe.y += player.eye;
+      const d = eye.distanceTo(pe);
+      if (d < 35 && this.canSee(eye, pe)) best = { who: 'player', pos: pe, dist: d, moving: player.vel.lengthSq() > 1 };
+    }
+    for (const o of this.list) {
+      if (o === b || o.dead) continue;
+      const op = o.group.position.clone(); op.y += 1.3;
+      const d = eye.distanceTo(op);
+      if (d < 25 && (!best || d < best.dist * 0.8) && this.canSee(eye, op)) best = { who: o, pos: op, dist: d, moving: o.state === 'run_m0' };
+    }
+    return best;
+  }
+
   update(dt, player) {
-    const eye = new THREE.Vector3(), pe = player.pos.clone(); pe.y += player.eye;
+    const eye = new THREE.Vector3();
+    const skill = this.skill || 1; // 0.6 easy .. 1.4 hard
     for (const b of this.list) {
       const g = b.group;
       if (b.rig) b.rig.update(dt);
@@ -145,18 +163,18 @@ export class Bots {
       if (b.react > 0) { b.react -= dt; continue; }
 
       eye.copy(g.position); eye.y += 1.6;
-      const toPlayer = pe.clone().sub(eye); const dist = toPlayer.length();
-      const sees = !player.dead && dist < 35 && this.canSee(eye, pe);
+      const tgt = this.pickTarget(b, eye, player);
       const w = WEAPONS[b.weapon] || WEAPONS.uzi;
-      if (sees) {
-        b.lastSeen = 0; b.hunt = this.nearestNode(player.pos);
-        g.rotation.y = Math.atan2(toPlayer.x, toPlayer.z);
+      if (tgt) {
+        const toT = tgt.pos.clone().sub(eye); const dist = tgt.dist;
+        b.lastSeen = 0; b.hunt = this.nearestNode(tgt.pos);
+        g.rotation.y = Math.atan2(toT.x, toT.z);
         b.cool -= dt;
         if (b.cool <= 0) {
           // Bots fire in bursts at a fraction of the weapon's rate.
-          b.cool = w.auto ? 60 / w.rpm * 2.5 : 60 / w.rpm * 1.6 + 0.3;
-          const acc = Math.max(0.12, 0.55 - dist / 70) * (player.vel.lengthSq() > 1 ? 0.65 : 1);
-          this.onShoot(b, w, this.muzzle(b), pe, Math.random() < acc);
+          b.cool = (w.auto ? 60 / w.rpm * 2.5 : 60 / w.rpm * 1.6 + 0.3) / skill;
+          const acc = Math.max(0.1, 0.55 - dist / 70) * (tgt.moving ? 0.65 : 1) * skill;
+          this.onShoot(b, w, this.muzzle(b), tgt.pos, Math.random() < acc, tgt.who);
         }
         const keep = w.kind === 'rocket' || w.kind === 'grenade' ? 10 : w.kind === 'beam' ? 3 : 7;
         if (dist > keep) this.walk(b, dt, true); else this.setAnim(b, 'fire_pose_m0');
