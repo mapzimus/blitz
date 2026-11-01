@@ -13,3 +13,6 @@ node_modules/
 *.MIB
 *.VAG
 *.PSS
+# Decoded asset packs and Python caches
+pack/
+__pycache__/
