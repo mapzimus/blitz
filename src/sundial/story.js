@@ -310,23 +310,24 @@ export class Story {
         c.group.rotation.y = c.yaw0 + Math.sin(c.t * 0.6) * 0.8;
         c.cool -= dt;
         if (!player.dead && c.cool <= 0) {
-          const eye = c.pos.clone(); eye.y += 0.2;
+          const facing = new THREE.Vector3(Math.sin(c.group.rotation.y), 0, Math.cos(c.group.rotation.y)); // models face +Z at yaw 0
+          const eye = c.pos.clone().addScaledVector(facing, 0.8); eye.y += 0.1; // start the look past the camera's own housing
           const pe = player.pos.clone(); pe.y += 1.2;
           const to = pe.clone().sub(eye); const dist = to.length();
           if (dist < 16) {
-            const facing = new THREE.Vector3(Math.sin(c.group.rotation.y), 0, Math.cos(c.group.rotation.y)); // models face +Z at yaw 0
             const flat = to.clone().setY(0).normalize();
-            if (facing.dot(flat) > 0.6 && this.bots.canSee(eye, pe)) { c.seen += dt; if (c.seen > 0.6) { c.seen = 0; c.cool = 6; this.emit('seen', { camera: c, name: c.name }); } }
+            if ((facing.dot(flat) > 0.5 || dist < 3) && this.bots.canSee(eye, pe)) { c.seen += dt; if (c.seen > 0.6) { c.seen = 0; c.cool = 6; this.emit('seen', { camera: c, name: c.name }); } }
             else c.seen = Math.max(0, c.seen - dt);
           }
         }
       } else if (c.kind === 'turret' && c.on) {
         c.cool -= dt;
         if (!player.dead && c.cool <= 0) {
-          const eye = c.pos.clone(); eye.y += 0.6;
           const pe = player.pos.clone(); pe.y += 1.0;
+          const toP = pe.clone().sub(c.pos).setY(0).normalize();
+          const eye = c.pos.clone().addScaledVector(toP, 0.9); eye.y += 0.6;
           if (eye.distanceTo(pe) < 22 && this.bots.canSee(eye, pe)) {
-            c.group.rotation.y = Math.atan2(pe.x - eye.x, pe.z - eye.z) + Math.PI;
+            c.group.rotation.y = Math.atan2(pe.x - c.pos.x, pe.z - c.pos.z);
             c.cool = 0.35; this.hooks.turretFire && this.hooks.turretFire(c, eye, pe);
           }
         }

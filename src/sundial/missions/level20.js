@@ -138,8 +138,9 @@ function brotherRuns(api) {
   v.brotherTimer = 150; // backstop
 }
 
+// Every main objective but the portal (and the casualty count, which only ever fails) is done.
 function mainsDone(api) {
-  return api.story.objectives.every(o => o.cat !== 0 || o.state === 'absent' || o.i === OBJ.PORTAL || o.state === 'done');
+  return api.story.objectives.every(o => o.cat !== 0 || o.state === 'absent' || o.i === OBJ.PORTAL || o.i === OBJ.CIVIL || o.state === 'done');
 }
 
 export default {
@@ -201,7 +202,9 @@ export default {
     }
     // Ending: the portal opens once every other main objective is done (FUN_003b1e70(10, 1433)).
     if (!v.portal && api.isDone(OBJ.CRYSTAL) && mainsDone(api)) {
-      v.portal = true; api.reveal(OBJ.PORTAL);
+      v.portal = true;
+      if (api.isActive(OBJ.CIVIL)) api.complete(OBJ.CIVIL); // TODO(uncertain): its check fns 0x37f6f0/0x37f700 are not in the decompile
+      api.reveal(OBJ.PORTAL);
       if (api.node(PORTAL_NODE)) api.portal(PORTAL_NODE); // TODO(uncertain): original node 1433 is not in the table
       else api.after(2, () => api.win());
     }
