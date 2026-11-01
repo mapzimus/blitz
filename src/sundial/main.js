@@ -541,7 +541,7 @@ function endMatch() {
     renderLeague();
   }
   $('#end').innerHTML = `${win ? 'YOU WIN' : rows[0].name.toUpperCase() + ' WINS'}${medalLine}<div class="fine">${rows.map(r => `${r.name} ${r.score}`).join(' &nbsp;·&nbsp; ')}</div><div class="fine">Press Enter for the menu</div>`;
-  $('#end').hidden = false; $('#board').hidden = false;
+  $('#end').hidden = false; $('#board').hidden = true;
   if (document.exitPointerLock) document.exitPointerLock();
 }
 addEventListener('keydown', e => { if (e.code === 'Enter' && match.over) { $('#end').hidden = true; $('#board').hidden = true; $('#setup').hidden = false; } });
