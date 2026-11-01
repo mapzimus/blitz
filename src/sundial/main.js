@@ -7,6 +7,7 @@ import { parseModel } from './model.js';
 import { TexSource, mapToGroup, modelToGroup } from './build.js';
 import { cache } from './store.js';
 import { Bots } from './bots.js';
+import { Sfx } from './audio.js';
 
 const $ = s => document.querySelector(s);
 const status = t => { $('#dirstatus').textContent = t; };
@@ -14,7 +15,10 @@ const msg = (t, ms = 2000) => { const el = $('#msg'); el.textContent = t; clearT
 
 // ---------- file acquisition ----------
 let pickedFiles = new Map(); // lowercase name -> File
-const NEEDED = ['gun.pak'];
+const NEEDED = ['gun.pak', 'sounds.pak'];
+let sfx = new Sfx(null);
+const hurtVoices = [], dieVoices = [];
+const pick = a => a[Math.floor(Math.random() * a.length)];
 const ARENA = /^l_(\d+)_ar\.pak$/;
 
 // Dev mode: ?src=/disc/PAK/ fetches archives from a local server instead of the folder picker.
@@ -40,7 +44,7 @@ async function fileBuf(name) {
 async function refreshLevelList() {
   const cached = new Set(SRC ? [] : await cache.keys());
   if (SRC) for (const n of [10, 11, 13, 21, 29, 32, 33, 34, 35, 36, 42, 43, 45, 46, 47, 48, 50, 55, 56, 64, 65, 100, 101, 102, 103, 104, 105, 106]) pickedFiles.set(`l_${n}_ar.pak`, true);
-  if (SRC) pickedFiles.set('gun.pak', true);
+  if (SRC) { pickedFiles.set('gun.pak', true); pickedFiles.set('sounds.pak', true); }
   const names = new Set([...cached, ...pickedFiles.keys()].filter(n => ARENA.test(n)));
   const sel = $('#level');
   sel.innerHTML = '';
@@ -54,7 +58,7 @@ async function refreshLevelList() {
   $('#levelrow').hidden = !(sorted.length && haveGun);
   $('#cachenote').textContent = cached.size ? `${cached.size} archive(s) kept in this browser. Nothing is uploaded anywhere.` : '';
   if (sorted.length && haveGun) status(`${sorted.length} arenas available.`);
-  else if (sorted.length) status('Found arenas but not GUN.PAK. Pick the PAK folder itself.');
+  else if (sorted.length) status('Found arenas but not GUN.PAK / SOUNDS.PAK. Pick the PAK folder itself.');
 }
 
 $('#dir').addEventListener('change', e => {
@@ -190,8 +194,10 @@ function respawn() {
 }
 let hurt = 0;
 function playerHit(bot, dmg) {
+  sfx.play('gun_laser02_me_22', { pos: bot.group.position, listener: camera.position, volume: 0.5, rate: 0.9 + Math.random() * 0.2 });
   if (!dmg) return;
   player.hp -= dmg; hurt = 0.25;
+  if (hurtVoices.length) sfx.play(pick(hurtVoices), { volume: 0.5 });
   $('#hp').textContent = Math.max(0, player.hp);
   if (player.hp <= 0) { player.deaths = (player.deaths || 0) + 1; msg('YOU WERE SPLIT', 2000); respawn(); }
 }
@@ -206,15 +212,20 @@ function fire() {
   if (player.ammo <= 0) { msg('OUT OF AMMO'); return; }
   player.ammo--; $('#ammo').textContent = player.ammo;
   recoil = 0.03; flash.intensity = 30; flash.position.copy(camera.position);
+  sfx.play('gun_laser01b_me_22', { volume: 0.8 });
   const dir = new THREE.Vector3(); camera.getWorldDirection(dir);
   ray.set(camera.position, dir); ray.far = 200;
   const botGroups = world.bots ? world.bots.groups : [];
   const hits = ray.intersectObjects([...botGroups, ...world.targets.filter(t => t.visible), ...world.solid], true);
   if (hits.length) {
     const bot = world.bots && world.bots.find(hits[0].object);
-    if (bot) { if (world.bots.hit(bot, 34)) { player.kills++; msg(`SPLIT  ${player.kills}`); } return; }
+    if (bot) {
+      if (world.bots.hit(bot, 34)) { player.kills++; msg(`SPLIT  ${player.kills}`); if (dieVoices.length) sfx.play(pick(dieVoices), { pos: bot.group.position, listener: camera.position }); }
+      else if (hurtVoices.length) sfx.play(pick(hurtVoices), { pos: bot.group.position, listener: camera.position, volume: 0.7 });
+      return;
+    }
     let o = hits[0].object; while (o.parent && !o.userData.target) o = o.parent;
-    if (o.userData.target) { o.visible = false; player.ammo = Math.min(99, player.ammo + 20); $('#ammo').textContent = player.ammo; msg('+20 AMMO'); }
+    if (o.userData.target) { o.visible = false; player.ammo = Math.min(99, player.ammo + 20); $('#ammo').textContent = player.ammo; msg('+20 AMMO'); sfx.play('getammo22_03'); }
   }
 }
 
@@ -222,9 +233,16 @@ function fire() {
 async function enter(levelName) {
   status('Loading…');
   const n = levelName.match(ARENA)[1];
-  const [lvlBuf, gunBuf] = await Promise.all([fileBuf(levelName), fileBuf('gun.pak')]);
+  const [lvlBuf, gunBuf, sndBuf] = await Promise.all([fileBuf(levelName), fileBuf('gun.pak'), fileBuf('sounds.pak')]);
   const pak = new Pak(lvlBuf, levelName);
   const gun = new Pak(gunBuf, 'gun.pak');
+  if (!sfx.pak) {
+    sfx = new Sfx(new Pak(sndBuf, 'sounds.pak'));
+    for (const p of sfx.pak.list('sfx/male')) {
+      const n = p.slice(4, -4);
+      if (/_die\d+$/.test(n)) dieVoices.push(n); else if (/22_\d+$/.test(n)) hurtVoices.push(n);
+    }
+  }
   const texSrc = new TexSource(pak);
 
   if (world.group) scene.remove(world.group);
