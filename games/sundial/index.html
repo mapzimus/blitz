@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SUNDIAL</title>
+<meta name="robots" content="noindex">
+<link rel="stylesheet" href="sundial.css">
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+<script>
+  // Per-door config. Code word only, never the real name.
+  window.GAME = { code: 'SUNDIAL', hub: '../../hub.html' };
+</script>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="hud" hidden>
+  <div id="cross"></div>
+  <div id="stats"><span id="hp">100</span> <span id="ammo"></span></div>
+  <div id="msg"></div>
+</div>
+
+<div id="setup">
+  <a class="back" href="../../hub.html">&larr; OUT</a>
+  <h1>S<span>UNDIAL</span></h1>
+  <p class="tag">BRING YOUR OWN DISC</p>
+  <div class="panel">
+    <p>This page ships no game data. It reads the archives straight off <b>your own copy</b> of the disc, in your browser, and keeps them in this browser only.</p>
+    <ol>
+      <li>Copy the disc to a folder (the one on this machine is <code>Downloads\ts2_disc</code>).</li>
+      <li>Click below and pick that folder's <code>PAK</code> directory.</li>
+      <li>Pick an arena. Click the screen to grab the mouse. <b>WASD</b> move, <b>mouse</b> look, <b>click</b> fire, <b>Space</b> jump, <b>Esc</b> release.</li>
+    </ol>
+    <div class="row">
+      <label class="btn" for="dir">PICK PAK FOLDER</label>
+      <input id="dir" type="file" webkitdirectory directory multiple hidden>
+      <span id="dirstatus" class="fine">Nothing loaded yet.</span>
+    </div>
+    <div class="row" id="levelrow" hidden>
+      <label for="level">ARENA</label>
+      <select id="level"></select>
+      <button class="btn" id="go">ENTER</button>
+    </div>
+    <p class="fine" id="cachenote"></p>
+  </div>
+</div>
+<script type="module" src="../../src/sundial/main.js"></script>
+</body>
+</html>

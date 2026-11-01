@@ -16,4 +16,11 @@ export const GAMES = [
     accent: '#ff4d00',
     ready: false,
   },
+  {
+    code: 'SUNDIAL',
+    hint: 'Ten eras. One arena. Bring your own disc.',
+    path: 'games/sundial/',
+    accent: '#3ad6c9',
+    ready: true,
+  },
 ];
