@@ -1,0 +1,10 @@
+# Private Cloudflare Pages deployment of the hub (public GitHub Pages stays code-only).
+# Deploy:  npx wrangler pages deploy . --project-name backroom
+name = "backroom"
+compatibility_date = "2026-10-01"
+pages_build_output_dir = "."
+
+# The disc archive lives in a private R2 bucket; functions/pack/[[path]].js streams it with ranges.
+[[r2_buckets]]
+binding = "PACK"
+bucket_name = "backroom-pack"

@@ -52,3 +52,15 @@ html,body{height:100%;background:#000;color:var(--chrome);font-family:Impact,"Ar
 .code{font-size:56px;color:var(--amber);letter-spacing:10px;text-shadow:3px 3px 0 #000;margin:10px 0}
 .icon{position:absolute;width:34px;height:34px;border-radius:50%;border:3px solid #fff;display:flex;align-items:center;justify-content:center;font-size:20px;color:#fff;text-shadow:1px 1px 0 #000;transform:translate(-50%,-100%);box-shadow:0 0 0 2px #000}
 .pbp{position:absolute;left:50%;bottom:30px;transform:translateX(-50%);font-family:Arial;font-size:16px;color:#ddd;background:#0009;padding:4px 14px;border-left:4px solid var(--amber)}
+/* touch controls (phones) */
+.touch{position:absolute;inset:0;pointer-events:none;z-index:5}
+.touch .stick{position:absolute;left:28px;bottom:40px;width:140px;height:140px;border-radius:50%;background:#0006;border:2px solid #fff5;pointer-events:auto;touch-action:none}
+.touch .knob{position:absolute;left:38px;top:38px;width:64px;height:64px;border-radius:50%;background:#fff9;border:2px solid #fff}
+.touch .pad{position:absolute;right:20px;bottom:30px;width:230px;height:230px;pointer-events:none}
+.touch .pad button,.touch .top button{pointer-events:auto;touch-action:none;position:absolute;width:72px;height:72px;border-radius:50%;border:2px solid #fff;color:#fff;font:inherit;font-size:24px;background:#0008;text-shadow:1px 1px 0 #000}
+.touch .pad .a{right:70px;bottom:0;background:#2ecc4088}.touch .pad .b{right:0;bottom:70px;background:#ff413688}.touch .pad .x{right:140px;bottom:70px;background:#0074d988}.touch .pad .y{right:70px;bottom:140px;background:#ffdc0088}
+.touch .pad .turbo{right:160px;bottom:0;width:84px;height:48px;border-radius:12px;font-size:18px;background:#ff6a0088}
+.touch .top{position:absolute;right:20px;top:110px;display:flex;gap:10px;pointer-events:none}
+.touch .top button{position:static;width:auto;height:40px;border-radius:10px;font-size:16px;padding:0 14px}
+.touch button.on{filter:brightness(1.6)}
+@media (hover:hover) and (pointer:fine){.touch{display:none}}

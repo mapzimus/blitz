@@ -32,7 +32,8 @@ export function maxSpeed(e, rules, fire) {
   if (e.turboOn && e.turbo > 0) s *= rules.turboSpeed;
   if (fire) s *= rules.onFireBoost;
   if (e.state === 'dive') s = MOVE.diveSpeed;
-  if (e.state === 'down' || e.state === 'tackled' || e.state === 'celebrate') s = 0;
+  if (e.state === 'down' || e.state === 'tackled' || e.state === 'celebrate' || e.state === 'hit') s = 0;
+  if (e.state === 'throw' || e.state === 'catch') s *= 0.5;
   if (e.state === 'spin') s *= 0.8;
   if (e.state === 'jump') s *= 0.9;
   if (e.engaged >= 0) s *= 0.15;

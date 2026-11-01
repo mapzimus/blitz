@@ -59,7 +59,7 @@ function blockBrain(g, e, def, protect) {
   // Pick the most dangerous unblocked defender near the man we protect, and get between them.
   let best = null, bs = 1e9;
   for (const d of def) {
-    if (d.state === 'down' || d.state === 'tackled') continue;
+    if (d.state === 'down' || d.state === 'tackled' || d.state === 'hit') continue;
     const dd = dist(d, protect);
     const ahead = (d.x - protect.x) * dir;            // defenders downfield of the carrier matter more
     let score = dd - (ahead > 0 && !passPro ? 3 : 0) + (d.engaged >= 0 ? 8 : 0) + (d.blocked > 0 ? 6 : 0);

@@ -59,7 +59,9 @@ export class Game {
       const r = isOff ? this.teams[t].roster.offense : this.teams[t].roster.defense;
       this.ents[t] = roles.map((role, i) => {
         const e = makeEntity(t, i, role, r[i]);
-        e.turbo = this.ents[t][i] ? this.ents[t][i].turbo : this.rules.turboMax;
+        const prev = this.ents[t][i];
+        if (prev) { e.turbo = prev.turbo; e.x = prev.x; e.y = prev.y; e.face = prev.face; }   // stay where the last play ended
+        else { e.turbo = this.rules.turboMax; e.x = this.los || 50; e.y = 10 + i * 5; }
         return e;
       });
     }

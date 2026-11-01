@@ -44,6 +44,7 @@ async function materialFor(assets, mat, opts = {}) {
   const map = name ? await threeTexture(assets, name, opts.hints) : null;
   const Mat = opts.unlit ? THREE.MeshBasicMaterial : THREE.MeshLambertMaterial;
   const m = new Mat({ map: map || null, color: map ? 0xffffff : 0x8a8a8a, vertexColors: !!opts.vertexColors, side: opts.doubleSide ? THREE.DoubleSide : THREE.FrontSide, transparent: !!opts.transparent, alphaTest: opts.transparent ? 0.3 : 0 });
+  if (opts.depthWrite === false) { m.depthWrite = false; m.depthTest = false; }
   return m;
 }
 
@@ -78,7 +79,7 @@ export async function buildField(assets) {
   const grass = await threeTexture(assets, 'flgra_1b', ['fl_fnmaf.rtd']);
   if (grass) {
     grass.repeat.set(24, 40);
-    const plane = new THREE.Mesh(new THREE.PlaneGeometry(2700, 4500), new THREE.MeshLambertMaterial({ map: grass, color: 0xdddddd }));
+    const plane = new THREE.Mesh(new THREE.PlaneGeometry(2700, 4500), new THREE.MeshBasicMaterial({ map: grass, color: 0xb8b8b8 }));
     plane.position.z = -0.6; plane.receiveShadow = true; g.add(plane);
   }
   const lines = await buildStatic(assets, 'fl_nnmaf.dff', { hints: ['fl_fnmaf.rtd'], transparent: true, doubleSide: true });
@@ -100,6 +101,41 @@ export async function buildStadium(assets, teamCode) {
     const mesh = new THREE.Mesh(partGeometry(part), mat); mesh.receiveShadow = true; g.add(mesh);
   }
   return g;
+}
+
+// Sky dome, both end zones, centre logo and goal posts from the disc.
+export async function buildExtras(assets, homeCode, awayCode, sky = 1) {
+  const g = fieldFrame();
+  const add = async (file, opts) => { try { g.add(await buildStatic(assets, file, { unlit: true, doubleSide: true, ...opts })); } catch (e) { console.warn(file, e); } };
+  await add(`sk_af_0${sky}.DFF`, { hints: [`sk_af_0${sky}.rtd`], depthWrite: false });
+  g.children.forEach(c => c.traverse(o => { if (o.isMesh && o.material.depthTest === false) o.renderOrder = -10; }));
+  await add('gp_af_a.DFF', { hints: ['_gp_gpost.rtd'], transparent: true });
+  await add('gp_af_b.DFF', { hints: ['_gp_gpost.rtd'], transparent: true });
+  // end zones: the model covers the -y end; the other end is the same model turned around
+  const ez = async (code, flip) => {
+    const file = `${code}_enmaf.dff`; if (!assets.zip.has(file)) return;
+    const m = await buildStatic(assets, file, { hints: [`${code}_enmAF.rtd`], unlit: true, transparent: true });
+    m.position.z = 0.4; if (flip) m.rotation.z = Math.PI; g.add(m);
+  };
+  await ez(homeCode, false); await ez(awayCode || homeCode, true);
+  // centre logo quad
+  if (assets.zip.has('clogo_af.DFF')) {
+    const m = await buildStatic(assets, 'clogo_af.DFF', { hints: [`${homeCode}_clogo.rtd`], rename: t => t === 'xx_clogo' ? `${homeCode}_clogo` : t, unlit: true, transparent: true });
+    m.position.z = 0.5; g.add(m);
+  }
+  return g;
+}
+
+export async function buildBall(assets) {
+  const model = await assets.model('ball.dff');
+  const geo = model.geometries[0];
+  const grp = new THREE.Group();
+  const inner = new THREE.Group(); inner.scale.setScalar(IN); inner.rotation.set(-Math.PI / 2, 0, Math.PI / 2); grp.add(inner);   // model +y (long axis) -> world +x
+  for (const part of geo.parts) {
+    const mat = await materialFor(assets, geo.materials[part.material] || {}, { hints: ['ball.rtd'] });
+    const mesh = new THREE.Mesh(partGeometry(part), mat); mesh.castShadow = true; inner.add(mesh);
+  }
+  return grp;
 }
 
 // ---------- players ----------

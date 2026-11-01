@@ -6,6 +6,7 @@ import { TEAMS } from './data/teams.js';
 import { Scene } from './render/scene.js';
 import { Hud } from './ui/hud.js';
 import { Input } from './input.js';
+import { Touch } from './ui/touch.js';
 import { assets } from './assets/index.js';
 import { Sound } from './audio.js';
 
@@ -24,6 +25,7 @@ const canvas = document.getElementById('gl');
 const scene = new Scene(canvas);
 const hud = new Hud(hudEl, overlay, scene);
 const input = new Input();
+const touch = new Touch(document.getElementById('app')); input.touch = touch; touch.show(false);
 const sound = new Sound(assets);
 
 let game = null, running = false, paused = false, last = 0, acc = 0;
@@ -44,20 +46,20 @@ function menu(items) {
   const go = () => { if (!items[sel].disabled) { cleanup(); items[sel].run(); } };
   const step = d => { for (let n = 0; n < items.length; n++) { sel = (sel + d + items.length) % items.length; if (!items[sel].disabled) break; } draw(); };
   const key = e => { if (e.code === 'ArrowUp' || e.code === 'KeyW') step(-1); else if (e.code === 'ArrowDown' || e.code === 'KeyS') step(1); else if (e.code === 'Enter' || e.code === 'Space' || e.code === 'KeyJ') { e.preventDefault(); go(); } };
-  let padV = false; const pad = () => { const r = input.poll(0, { keyboard: false }); if (Math.abs(r.my) > 0.5 && !padV) step(r.my > 0 ? 1 : -1); padV = Math.abs(r.my) > 0.5; if (r.f[0] || r.start) go(); wrap._raf = requestAnimationFrame(pad); };
+  let padV = false; const pad = () => { const r = input.poll(0, { keyboard: false }); touch.apply(r); if (Math.abs(r.my) > 0.5 && !padV) step(r.my > 0 ? 1 : -1); padV = Math.abs(r.my) > 0.5; if (r.f[0] || r.start) go(); wrap._raf = requestAnimationFrame(pad); };
   const cleanup = () => { window.removeEventListener('keydown', key); cancelAnimationFrame(wrap._raf); };
   window.addEventListener('keydown', key); wrap._raf = requestAnimationFrame(pad);
   draw(); return wrap;
 }
 
 function title() {
-  running = false; hudEl.style.visibility = 'hidden';
+  running = false; hudEl.style.visibility = 'hidden'; touch.show(false);
   const s = screen(`<h1>${esc(cfg.code.slice(0, 1))}<span>${esc(cfg.code.slice(1))}</span></h1><h2>${esc(rules.name)}</h2>`);
   s.appendChild(menu([
     { label: '1 PLAYER', run: () => teamSelect(1) },
     { label: '2 PLAYER', run: () => teamSelect(2) },
     { label: 'WATCH CPU DEMO', run: () => startGame([5, 9], [false, false]) },
-    { label: assets.ready ? 'DISC DATA LOADED ✓' : 'LOAD DISC DATA', run: () => loadDisc() },
+    { label: assets.ready ? 'DISC DATA LOADED ✓' : (assets.canResume ? 'RESUME DISC DATA' : 'LOAD DISC DATA'), run: () => (assets.canResume && !assets.ready ? resumeDisc() : loadDisc()) },
     { label: 'CONTROLS', run: () => controls() },
     { label: 'BACK OUT', run: () => { location.href = cfg.hub; } },
   ]));
@@ -66,19 +68,36 @@ function title() {
   s.appendChild(p);
 }
 
+async function describeAssets() {
+  const t = await assets.soundTable();
+  return `disc data on (${assets.source || 'loaded'}) · ${assets.zip.entries.size} files · ${[...t.keys()].filter(k => k.endsWith('.mss')).length} sounds · real models, rosters & announcer`;
+}
+// After any load, keep a copy in browser storage so the next visit needs nothing.
+async function keepCopy(msgEl) {
+  if (assets.cached) return;
+  if (msgEl) msgEl.textContent = 'saving a copy in this browser (one time, about 360 MB)…';
+  const ok = await assets.cacheInBrowser(p => { if (msgEl) msgEl.textContent = `saving a copy in this browser… ${Math.round(p * 100)}%`; });
+  assetStatus = (await describeAssets()) + (ok ? ' · kept in this browser' : '');
+  if (msgEl) msgEl.textContent = ok ? 'done. this browser will load it automatically from now on.' : 'could not keep a copy (storage denied); you can still pick the file each visit.';
+}
+async function resumeDisc() {
+  try { if (await assets.resume()) { assetStatus = await describeAssets(); await sound.init(); await keepCopy(null); } } catch (e) { console.warn(e); }
+  title();
+}
 async function loadDisc() {
-  const s = screen(`<h2>LOAD DISC DATA</h2><p class="small">Pick <code>DATA/BASSETS.ZIP</code> from your own copy of the disc (or the whole .iso). It is read in your browser only; nothing is uploaded or stored on the site.</p>`);
+  const s = screen(`<h2>LOAD DISC DATA</h2><p class="small">Pick <code>DATA/BASSETS.ZIP</code> from your own copy of the disc (or the whole .iso). It is read in your browser only; nothing is uploaded or stored on the site. The browser keeps its own copy, so you do this once per browser.</p>`);
   const b = document.createElement('button'); b.className = 'btn'; b.textContent = 'CHOOSE FILE'; s.appendChild(b);
   const back = document.createElement('button'); back.className = 'btn'; back.style.marginTop = '12px'; back.textContent = 'BACK'; back.onclick = title; s.appendChild(back);
+  if (assets.ready) { const f = document.createElement('button'); f.className = 'btn'; f.style.marginTop = '12px'; f.textContent = 'FORGET DISC DATA IN THIS BROWSER'; f.onclick = async () => { await assets.forgetCache(); location.reload(); }; s.appendChild(f); }
   const msg = document.createElement('p'); msg.className = 'small'; s.appendChild(msg);
   b.onclick = async () => {
     try {
       msg.textContent = 'reading…';
       await assets.pick();
-      const t = await assets.soundTable();
-      assetStatus = `disc data loaded · ${assets.zip.entries.size} files · ${[...t.keys()].filter(k => k.endsWith('.mss')).length} sounds · real rosters & announcer on`;
+      assetStatus = await describeAssets();
       await sound.init();
-      title();
+      await keepCopy(msg);
+      setTimeout(title, 1200);
     } catch (e) { msg.textContent = 'could not load: ' + e.message; }
   };
 }
@@ -126,7 +145,7 @@ async function startGame(teamIds, human) {
   scene.build(game.teams);
   hud.setTeams(game.teams);
   if (assets.ready) scene.useAssets(assets);
-  hudEl.style.visibility = 'visible';
+  hudEl.style.visibility = 'visible'; touch.show(true);
   icons = [false, false]; pickBox = [null, null]; paused = false;
   await sound.init(); sound.resume();
   sound.playMusic('tune');
@@ -217,9 +236,10 @@ function uiState(raws) {
     if (want && !pickBox[t]) {
       const b = want === 'play' ? hud.playcall(game, t, pick => { pickBox[t] = null; input.pressed.clear(); game.choosePlay(t, pick); }) : hud.patChoice(game, t, c => { pickBox[t] = null; input.pressed.clear(); game.choosePat(t, c); });
       b._kind = want; pickBox[t] = b;
-      if (slot === 1) b.style.transform = 'translateY(-10px)';
+      if (slot === 1) { b.style.justifyContent = 'flex-end'; b.style.paddingRight = '24px'; b.querySelector('.box').style.minWidth = '520px'; }
+      if (slot === 0 && game.human[0] && game.human[1]) { b.style.justifyContent = 'flex-start'; b.style.paddingLeft = '24px'; b.querySelector('.box').style.minWidth = '520px'; }
     }
-    if (pickBox[t] && pickBox[t]._pad && input.hasPad(slot)) pickBox[t]._pad(input.poll(slot, { keyboard: false }));
+    if (pickBox[t] && pickBox[t]._pad && (input.hasPad(slot) || (slot === 0 && touch.enabled))) pickBox[t]._pad(input.poll(slot, { keyboard: false }));
   }
 }
 
@@ -255,13 +275,16 @@ function finalScreen() {
   title();
   // Dev: ?pack=http://127.0.0.1:8779/BASSETS.ZIP loads the archive over local HTTP byte ranges.
   const packUrl = new URLSearchParams(location.search).get('pack');
-  if (packUrl && /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//.test(packUrl)) {
-    try { await assets.openUrl(packUrl); const t = await assets.soundTable(); assetStatus = `disc data via local server � ${assets.zip.entries.size} files � ${[...t.keys()].filter(k => k.endsWith('.mss')).length} sounds`; title(); return; } catch (e) { console.warn('pack url', e); }
+  if (packUrl && (/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//.test(packUrl) || /^[\w./-]+$/.test(packUrl))) {
+    try { await assets.openUrl(packUrl); assets.source = 'local server'; assetStatus = await describeAssets(); title(); return; } catch (e) { console.warn('pack url', e); }
   }
+  // Private deployment: the site itself serves the archive (behind the host's login) at /pack/BASSETS.ZIP.
+  try {
+    const base = location.pathname.replace(/games\/[^/]+\/.*$/, '');
+    const probe = await fetch(base + 'pack/BASSETS.ZIP', { method: 'HEAD' });
+    if (probe.ok && probe.headers.get('accept-ranges') === 'bytes') { await assets.openUrl(base + 'pack/BASSETS.ZIP'); assets.source = 'this site'; assetStatus = await describeAssets(); title(); return; }
+  } catch (e) { /* public site: no archive here */ }
   // Quietly reopen the disc data if the browser remembered the file handle.
-  if (await assets.restore().catch(() => false)) {
-    const t = await assets.soundTable();
-    assetStatus = `disc data loaded · ${assets.zip.entries.size} files · ${[...t.keys()].filter(k => k.endsWith('.mss')).length} sounds · real rosters & announcer on`;
-    title();
-  }
+  if (await assets.restore().catch(() => false)) { assetStatus = await describeAssets(); title(); }
+  else if (assets.canResume) { assetStatus = 'disc data remembered · one click to resume'; title(); }
 })();

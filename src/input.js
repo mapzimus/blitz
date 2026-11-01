@@ -10,6 +10,7 @@ export class Input {
     window.addEventListener('blur', () => this.keys.clear());
     this.padPrev = [[], []];
     this.padMap = [null, null];       // which gamepad index drives player slot 0/1
+    this.touch = null;                // set by main.js on touch devices
   }
 
   // Raw state for player slot (0 or 1). Keyboard always feeds slot 0; gamepads attach to free slots.
@@ -48,6 +49,7 @@ export class Input {
       r.start = r.start || edge(9);
       this.padPrev[slot] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(i => b(i));
     }
+    if (slot === 0 && keyboard && this.touch) this.touch.apply(r);
     const m = Math.hypot(r.mx, r.my); if (m > 1) { r.mx /= m; r.my /= m; }
     r.any = r.f.some(Boolean) || r.d.some(Boolean) || r.start;
     return r;

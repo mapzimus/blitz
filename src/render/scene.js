@@ -1,7 +1,7 @@
 // Three.js presentation of the sim. World axes: X = field length (yards), Z = field width, Y = up.
 import * as THREE from 'three';
 import { FIELD, PHASE } from '../game/constants.js';
-import { buildField, buildStadium, PlayerKit, TEAM_CODE } from './models.js';
+import { buildField, buildStadium, buildExtras, buildBall, PlayerKit, TEAM_CODE } from './models.js';
 
 const YD = 1;                              // 1 world unit = 1 yard
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -70,7 +70,7 @@ export class Scene {
       const post = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 3.3, 10), yellow); post.position.set(0, 1.65, 0); g.add(post);
       const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 6.2, 10), yellow); bar.rotation.x = Math.PI / 2; bar.position.set(0, 3.3, 0); g.add(bar);
       for (const s of [-3.1, 3.1]) { const up = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 10, 8), yellow); up.position.set(0, 8.3, s); g.add(up); }
-      g.position.set(x, 0, FIELD.mid); g.traverse(o => { o.castShadow = true; }); W.add(g);
+      g.position.set(x, 0, FIELD.mid); g.traverse(o => { o.castShadow = true; }); g.userData.drawn = true; W.add(g);
     }
     // markers
     this.los = new THREE.Mesh(new THREE.PlaneGeometry(0.18, FIELD.width), new THREE.MeshBasicMaterial({ color: 0x2b6cff, transparent: true, opacity: 0.85 }));
@@ -94,9 +94,12 @@ export class Scene {
       if (!this.kit) this.kit = await new PlayerKit(assets).load();
       if (this.assetRoot) this.scene.remove(this.assetRoot);
       const root = this.assetRoot = new THREE.Group(); this.scene.add(root);
-      const home = TEAM_CODE[this.teams[0].abbr] || 'md';
+      const home = TEAM_CODE[this.teams[0].abbr] || 'md', away = TEAM_CODE[this.teams[1].abbr] || 'md';
       root.add(await buildField(assets));
       root.add(await buildStadium(assets, home));
+      root.add(await buildExtras(assets, home, away, 1 + ((Math.random() * 5) | 0)));
+      try { const ball = await buildBall(assets); this.ball.visible = false; this.realBall = ball; root.add(ball); } catch (e) { console.warn('ball', e); }
+      this.scene.background = null; this.scene.fog = null;
       // real players
       this.rigs = [[], []];
       for (let t = 0; t < 2; t++) {
@@ -108,6 +111,7 @@ export class Scene {
         for (const p of this.players[t]) p.group.visible = false;
       }
       if (this.world) { for (const o of this.world.children) if (o.userData.drawn) o.visible = false; }
+      this.scene.children.filter(o => o.isHemisphereLight).forEach(l => { l.intensity = 1.4; });
       this.assetsOn = true;
     } catch (e) { console.error('useAssets failed', e); }
   }
@@ -142,6 +146,15 @@ export class Scene {
     if (b.inAir) { this.ball.rotation.z += dt * 18; this.ball.rotation.y = Math.atan2(-b.vy, b.vx); } else { this.ball.rotation.z = 0; this.ball.rotation.y = holder ? -holder.face : 0; }
     if (holder) { this.ball.position.x += Math.cos(holder.face) * 0.35; this.ball.position.z += Math.sin(holder.face) * 0.35; this.ball.position.y = 0.9 + holder.z; if (holder.state === 'down' || holder.state === 'tackled') this.ball.position.y = 0.35; }
     this.ballShadow.position.set(b.x, 0.015, b.y); this.ballShadow.visible = b.inAir || b.loose;
+    if (this.realBall) {
+      const rb = this.realBall; rb.position.copy(this.ball.position); rb.rotation.copy(this.ball.rotation);
+      if (holder && this.assetsOn) {
+        // carry it in the right hand (HAnim id 12) when the rig exists
+        const rig = this.rigs[holder.team] && this.rigs[holder.team][holder.idx];
+        const hand = rig && rig.bones[rig.kit.frameOfId[12]];
+        if (hand) { hand.getWorldPosition(rb.position); rb.position.y += 0.05; rb.rotation.set(0, -holder.face, 0.3); }
+      }
+    }
     const showMarks = !g.special && (g.phase === PHASE.PLAYCALL || g.phase === PHASE.PRESNAP || g.phase === PHASE.LIVE || g.phase === PHASE.DEAD);
     this.los.visible = showMarks; this.fdl.visible = showMarks && g.firstDownX !== g.goalLineFor(g.poss);
     this.los.position.x = g.los; this.los.position.z = FIELD.mid; this.fdl.position.x = g.firstDownX; this.fdl.position.z = FIELD.mid;
@@ -187,6 +200,9 @@ function poseRig(rig, e, dt, fire) {
     case 'spin': clip = 'c_spin_02'; loop = false; speed = 1.5; break;
     case 'stiff': clip = 'bc_stiffarm'; loop = false; speed = 1.5; break;
     case 'celebrate': clip = 'ts_celeb_01'; break;
+    case 'throw': clip = 'qb_pass_m_01'; loop = false; speed = 1.6; break;
+    case 'catch': clip = e.z > 0.3 ? 'catch_jump_01' : 'wave_catch_01'; loop = false; speed = 1.8; break;
+    case 'hit': clip = 'hit_fd_03'; loop = false; speed = 1.3; break;
     default:
       if (e.task === 'set' || e.task === 'kicker') clip = e.role === 'QB' ? 'lu_qb_01_i' : (e.role === 'OL' ? 'lu_cen_01_i' : (e.role === 'WR' ? 'lu_wr_01_i' : (['DL', 'LB', 'CB', 'S'].includes(e.role) ? 'def_ready_01' : 'ready_01')));
       else if (sp > 1.5) { clip = e.hasBall ? 'rz_run_01' : (sp > 7 ? 'run_01' : 'jog_01'); speed = 0.55 + sp / 9; }

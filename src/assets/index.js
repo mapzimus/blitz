@@ -21,24 +21,55 @@ async function kvSet(k, v) { const db = await idb(); return new Promise((res, re
 export class Assets {
   constructor() { this.zip = null; this.ready = false; this.texCache = new Map(); this.sndCache = new Map(); this.sndTable = null; this.roster = null; this.playbooks = new Map(); this.modelCache = new Map(); this.bankCache = new Map(); this.texIndex = null; }
 
-  // Try to reopen the archive from a remembered handle. Returns true if assets are available.
+  // Reopen without any prompt: first the copy kept in browser storage, then a remembered file handle
+  // whose permission is still granted. Returns true if assets are available.
   async restore() {
+    try {
+      const blob = await kvGet('bassets-blob');
+      if (blob && blob.size > 1e6) { await this.openFile(blob, { fromCache: true }); this.source = 'browser storage'; return true; }
+    } catch (e) { console.warn('assets cache', e); }
     try {
       const h = await kvGet('bassets-handle');
       if (!h) return false;
-      let perm = await h.queryPermission({ mode: 'read' });
-      if (perm !== 'granted') perm = await h.requestPermission({ mode: 'read' });
-      if (perm !== 'granted') return false;
+      const perm = await h.queryPermission({ mode: 'read' });
+      if (perm !== 'granted') { this.pendingHandle = h; return false; }
       await this.openFile(await h.getFile());
+      this.source = 'remembered file';
       return true;
     } catch (e) { console.warn('assets restore', e); return false; }
   }
+  // A remembered handle exists but needs a click to re-grant permission.
+  get canResume() { return !!this.pendingHandle; }
+  async resume() {
+    const h = this.pendingHandle; if (!h) return false;
+    const perm = await h.requestPermission({ mode: 'read' });
+    if (perm !== 'granted') return false;
+    await this.openFile(await h.getFile()); this.source = 'remembered file'; this.pendingHandle = null; return true;
+  }
+  // Copy the archive into IndexedDB (one-time, ~360 MB) so it survives without the original file.
+  async cacheInBrowser(onProgress) {
+    if (!this.zip || this.cached) return true;
+    try {
+      if (navigator.storage && navigator.storage.persist) await navigator.storage.persist();
+      const src = this.zip.file;
+      let blob = src;
+      if (!(src instanceof Blob)) {                       // HttpBlob: pull it down in chunks
+        const parts = []; const CH = 16 << 20;
+        for (let o = 0; o < src.size; o += CH) { parts.push(await src.slice(o, Math.min(src.size, o + CH)).arrayBuffer()); if (onProgress) onProgress(Math.min(1, (o + CH) / src.size)); }
+        blob = new Blob(parts);
+      }
+      await kvSet('bassets-blob', blob);
+      this.cached = true; return true;
+    } catch (e) { console.warn('cacheInBrowser', e); return false; }
+  }
+  async forgetCache() { try { await kvSet('bassets-blob', null); await kvSet('bassets-handle', null); } catch (e) { } this.cached = false; }
 
   // Ask the player for BASSETS.ZIP (or the whole ISO; we find the zip inside it).
   async pick() {
     if (window.showOpenFilePicker) {
       const [h] = await window.showOpenFilePicker({ types: [{ description: 'Blitz 2002 disc data', accept: { 'application/octet-stream': ['.zip', '.ZIP', '.iso', '.ISO'] } }] });
       await this.openFile(await h.getFile());
+      this.source = 'picked file';
       try { await kvSet('bassets-handle', h); } catch (e) { /* non-persistable */ }
       return true;
     }
@@ -61,9 +92,10 @@ export class Assets {
     this.ready = true;
   }
 
-  async openFile(file) {
+  async openFile(file, { fromCache = false } = {}) {
     let blob = file;
-    if (/\.iso$/i.test(file.name)) blob = await findZipInIso(file);
+    if (file.name && /\.iso$/i.test(file.name)) blob = await findZipInIso(file);
+    this.cached = fromCache;
     this.zip = await StoredZip.open(blob);
     if (!this.zip.has('roster.rst')) throw new Error('That archive is not BASSETS.ZIP from NFL Blitz 2002');
     this.roster = parseRoster(await this.zip.bytes('roster.rst'));

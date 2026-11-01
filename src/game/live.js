@@ -164,6 +164,7 @@ function throwPass(g, qb, target) {
   }
   tx = clamp(tx, FIELD.minX + 1, FIELD.maxX - 1); ty = clamp(ty, 0.5, FIELD.width - 0.5);
   g.throwBall(qb, tx, ty, bullet ? 'bullet' : 'lob', bullet ? 1.0 : 1.3);
+  setState(qb, 'throw', 0.5);
   g.ball.target = target;
   g.ball.thrownBy = qb.idx;
   g.say(`${g.teams[g.poss].abbr} QB throws to ${RECEIVERS.indexOf(target) >= 0 ? ['A', 'B', 'C', 'D'][RECEIVERS.indexOf(target)] : '?'}`);
@@ -274,6 +275,7 @@ function catchBall(g, e) {
   g.giveBall(e.team, e.idx);
   b.lateral = false;
   e.task = 'carry'; e.route = null;
+  if (e.state !== 'jump' && e.state !== 'dive') setState(e, 'catch', 0.3);
   if (!wasOff) {
     // interception, or a punt fielded by the return man: possession flips
     if (b.kind === 'bullet' || b.kind === 'lob') { g.banner('INTERCEPTION!', ''); g.say('Picked off!'); g.emit('sound', { name: 'pick' }); g.special = null; g.intercepted = true; }
@@ -378,7 +380,7 @@ function resolveContact(g, off, def, dt) {
         setState(c, 'down', 1.0); setState(d, 'down', 0.6); g.say('FUMBLE!'); g.emit('sound', { name: 'fumble' });
         return;
       }
-      setState(d, 'down', 0.7);
+      setState(d, d.state === 'dive' ? 'down' : 'hit', 0.8);
       finishCarrier(g, c, 'tackle');
       if (big) g.banner(['BIG HIT!', 'CRUSHED!', 'OUCH!', 'PANCAKE!'][(Math.random() * 4) | 0], '');
       return;
