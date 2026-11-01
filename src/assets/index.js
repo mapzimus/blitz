@@ -4,6 +4,8 @@ import { StoredZip } from './zip.js';
 import { decodeTxd } from './txd.js';
 import { readSoundTable, decodeMss, toAudioBuffer } from './audio.js';
 import { parseRoster, parsePlaybook } from './tables.js';
+import { readDff } from './dff.js';
+import { Bank } from './ban.js';
 
 const DB = 'blitz-assets', STORE = 'kv';
 function idb() {
@@ -17,7 +19,7 @@ async function kvGet(k) { const db = await idb(); return new Promise((res, rej) 
 async function kvSet(k, v) { const db = await idb(); return new Promise((res, rej) => { const t = db.transaction(STORE, 'readwrite').objectStore(STORE).put(v, k); t.onsuccess = () => res(); t.onerror = () => rej(t.error); }); }
 
 export class Assets {
-  constructor() { this.zip = null; this.ready = false; this.texCache = new Map(); this.sndCache = new Map(); this.sndTable = null; this.roster = null; this.playbooks = new Map(); }
+  constructor() { this.zip = null; this.ready = false; this.texCache = new Map(); this.sndCache = new Map(); this.sndTable = null; this.roster = null; this.playbooks = new Map(); this.modelCache = new Map(); this.bankCache = new Map(); this.texIndex = null; }
 
   // Try to reopen the archive from a remembered handle. Returns true if assets are available.
   async restore() {
@@ -45,6 +47,18 @@ export class Assets {
       inp.onchange = async () => { if (inp.files[0]) { await this.openFile(inp.files[0]); res(true); } else res(false); };
       inp.click();
     });
+  }
+
+  // Dev path: open the archive over HTTP with Range requests (no upload; same-machine server).
+  async openUrl(url) {
+    const head = await fetch(url, { method: 'HEAD' });
+    const size = +head.headers.get('content-length');
+    if (!size || head.headers.get('accept-ranges') !== 'bytes') throw new Error('server lacks range support');
+    const blob = new HttpBlob(url, size, url.split('/').pop());
+    this.zip = await StoredZip.open(blob);
+    if (!this.zip.has('roster.rst')) throw new Error('not BASSETS.ZIP');
+    this.roster = parseRoster(await this.zip.bytes('roster.rst'));
+    this.ready = true;
   }
 
   async openFile(file) {
@@ -82,6 +96,36 @@ export class Assets {
   }
   async soundNames(prefix) { const t = await this.soundTable(); return [...t.keys()].filter(k => k.startsWith(prefix.toLowerCase()) && k.endsWith('.mss')); }
 
+  async model(file) {
+    const key = file.toLowerCase();
+    if (!this.modelCache.has(key)) this.modelCache.set(key, readDff(await this.zip.bytes(file)));
+    return this.modelCache.get(key);
+  }
+  async bank(file) {
+    const key = file.toLowerCase();
+    if (!this.bankCache.has(key)) this.bankCache.set(key, new Bank(await this.zip.bytes(file)));
+    return this.bankCache.get(key);
+  }
+  // Texture by name. Fast path by naming convention; otherwise scan dictionaries that share a prefix.
+  async findTexture(name, hints = []) {
+    const n = name.toLowerCase();
+    const candidates = [...hints];
+    const m = /^([a-z]{2})ih(unih|unia|logh|loga|helm|fnth|herd)$/.exec(n);
+    if (m) candidates.push(`${m[1]}_p_${m[2] === 'unia' || m[2] === 'loga' ? 'a' : 'h'}.rtd`, 'teams1.rtd', 'teams2.rtd', 'teams3.rtd', 'teams4.rtd');
+    if (/^plih/.test(n)) candidates.push('skin.rtd');
+    if (/^eq|^equipment$/.test(n)) candidates.push('equip.rtd');
+    if (/^fl(sid|num|gra|yel|lin)/.test(n)) candidates.push('fl_fnmaf.rtd');
+    if (/^ball/.test(n)) candidates.push('ball.rtd');
+    const ob = /^([a-z]{2})objs?_?(\d+)$/.exec(n);
+    if (ob) candidates.push(`${ob[1]}_snmAF.rtd`, `${ob[1]}_snmDU.rtd`, `${ob[1]}_snmNI.rtd`, `${ob[1]}_snmOV.rtd`);
+    for (const c of candidates) {
+      if (!this.zip.has(c)) continue;
+      const t = await this.texture(c, n);
+      if (t) return t;
+    }
+    return null;
+  }
+
   async playbook(code) {
     if (!this.playbooks.has(code)) this.playbooks.set(code, parsePlaybook(await this.zip.bytes(code + '.rsc')));
     return this.playbooks.get(code);
@@ -113,6 +157,18 @@ async function findZipInIso(file) {
   }
   if (end < 0) throw new Error('zip end record not found in ISO');
   return file.slice(start, end);
+}
+
+// Blob-like over HTTP byte ranges.
+class HttpBlob {
+  constructor(url, size, name, start = 0) { this.url = url; this.size = size; this.name = name; this.start = start; }
+  slice(a, b) { return new HttpBlob(this.url, Math.max(0, Math.min(this.size, b) - a), this.name, this.start + a); }
+  async arrayBuffer() {
+    if (this.size === 0) return new ArrayBuffer(0);
+    const r = await fetch(this.url, { headers: { Range: `bytes=${this.start}-${this.start + this.size - 1}` } });
+    if (r.status !== 206) throw new Error('range request failed ' + r.status);
+    return r.arrayBuffer();
+  }
 }
 
 export const assets = new Assets();

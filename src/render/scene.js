@@ -1,6 +1,7 @@
 // Three.js presentation of the sim. World axes: X = field length (yards), Z = field width, Y = up.
 import * as THREE from 'three';
 import { FIELD, PHASE } from '../game/constants.js';
+import { buildField, buildStadium, PlayerKit, TEAM_CODE } from './models.js';
 
 const YD = 1;                              // 1 world unit = 1 yard
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -21,6 +22,7 @@ export class Scene {
     this.players = [[], []];
     this.teams = null;
     this.t = 0;
+    this.kit = null; this.rigs = [[], []]; this.assetsOn = false; this.assetRoot = null;
     this.lights();
     this.resize();
     window.addEventListener('resize', () => this.resize());
@@ -51,7 +53,7 @@ export class Scene {
     const tex = new THREE.CanvasTexture(fieldCanvas(teams));
     tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
     const field = new THREE.Mesh(new THREE.PlaneGeometry(120, FIELD.width), new THREE.MeshLambertMaterial({ map: tex }));
-    field.rotation.x = -Math.PI / 2; field.position.set(50, 0, FIELD.mid); field.receiveShadow = true; W.add(field);
+    field.rotation.x = -Math.PI / 2; field.position.set(50, 0, FIELD.mid); field.receiveShadow = true; field.userData.drawn = true; W.add(field);
     const apron = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshLambertMaterial({ color: 0x1d3a1c }));
     apron.rotation.x = -Math.PI / 2; apron.position.set(50, -0.02, FIELD.mid); apron.receiveShadow = true; W.add(apron);
     // stands
@@ -59,7 +61,7 @@ export class Scene {
     const standMat = new THREE.MeshLambertMaterial({ map: crowd });
     const mk = (w, d, x, z, rot) => { const g = new THREE.Mesh(new THREE.BoxGeometry(w, 18, d), standMat); g.position.set(x, 9, z); g.rotation.y = rot; g.rotation.x = rot === 0 ? 0 : 0; W.add(g); };
     mk(160, 30, 50, -24, 0); mk(160, 30, 50, FIELD.width + 24, 0); mk(90, 30, -34, FIELD.mid, Math.PI / 2); mk(90, 30, 134, FIELD.mid, Math.PI / 2);
-    for (const m of W.children.slice(-4)) m.rotation.x = 0;
+    for (const m of W.children.slice(-4)) { m.rotation.x = 0; m.userData.drawn = true; }
     // tilt stands by shearing look: just lower front faces via a second wedge
     // goal posts
     const yellow = new THREE.MeshStandardMaterial({ color: 0xffd400, metalness: 0.3, roughness: 0.5 });
@@ -76,13 +78,38 @@ export class Scene {
     this.fdl = new THREE.Mesh(new THREE.PlaneGeometry(0.18, FIELD.width), new THREE.MeshBasicMaterial({ color: 0xffe600, transparent: true, opacity: 0.9 }));
     this.fdl.rotation.x = -Math.PI / 2; this.fdl.position.y = 0.02; W.add(this.fdl);
     // ball
-    this.ball = new THREE.Mesh(new THREE.SphereGeometry(0.33, 14, 10), new THREE.MeshStandardMaterial({ color: 0x6b3a1e, roughness: 0.7 }));
-    this.ball.scale.set(1.5, 1, 1); this.ball.castShadow = true; W.add(this.ball);
+    this.ball = new THREE.Mesh(new THREE.SphereGeometry(0.17, 14, 10), new THREE.MeshStandardMaterial({ color: 0x6b3a1e, roughness: 0.7 }));
+    this.ball.scale.set(1.7, 1, 1); this.ball.castShadow = true; W.add(this.ball);
     this.ballShadow = blob(0.5); W.add(this.ballShadow);
     // control rings
     this.rings = [0, 1].map(t => { const r = new THREE.Mesh(new THREE.RingGeometry(0.75, 0.95, 24), new THREE.MeshBasicMaterial({ color: t === 0 ? 0xffb03b : 0x4ea1ff, transparent: true, opacity: 0.9, side: THREE.DoubleSide })); r.rotation.x = -Math.PI / 2; r.position.y = 0.03; W.add(r); return r; });
     // players
     this.players = [0, 1].map(t => Array.from({ length: 7 }, () => { const p = makePlayer(teams[t]); W.add(p.group); return p; }));
+  }
+
+  // Replace the drawn field/stadium/capsules with the disc's models. Safe to call before or after build().
+  async useAssets(assets) {
+    if (!assets.ready) return;
+    try {
+      if (!this.kit) this.kit = await new PlayerKit(assets).load();
+      if (this.assetRoot) this.scene.remove(this.assetRoot);
+      const root = this.assetRoot = new THREE.Group(); this.scene.add(root);
+      const home = TEAM_CODE[this.teams[0].abbr] || 'md';
+      root.add(await buildField(assets));
+      root.add(await buildStadium(assets, home));
+      // real players
+      this.rigs = [[], []];
+      for (let t = 0; t < 2; t++) {
+        const code = TEAM_CODE[this.teams[t].abbr] || 'md';
+        for (let i = 0; i < 7; i++) {
+          const rig = await this.kit.build(code, t === 0, ['joh', 'bub', 'gum', 'cwo', 'wil', 'tar', 'jul', 'vic', 'cha', 'rhe', 'mik'][(t * 7 + i) % 11]);
+          rig.play('ready_01'); root.add(rig.root); this.rigs[t].push(rig);
+        }
+        for (const p of this.players[t]) p.group.visible = false;
+      }
+      if (this.world) { for (const o of this.world.children) if (o.userData.drawn) o.visible = false; }
+      this.assetsOn = true;
+    } catch (e) { console.error('useAssets failed', e); }
   }
 
   project(x, y, z) {
@@ -100,6 +127,7 @@ export class Scene {
       for (let i = 0; i < 7; i++) {
         const e = ents[i], p = this.players[t][i];
         if (!e) { p.group.visible = false; continue; }
+        if (this.assetsOn && this.rigs[t][i]) { p.group.visible = false; poseRig(this.rigs[t][i], e, dt, g.fire[t]); continue; }
         p.group.visible = true;
         poseEntity(p, e, this.t, g.fire[t]);
       }
@@ -110,7 +138,7 @@ export class Scene {
     const b = g.ball;
     const holder = g.carrier();
     this.ball.visible = !(holder && false);
-    this.ball.position.set(b.x, Math.max(0.25, b.z + (holder ? 0.95 : 0.3)), b.y);
+    this.ball.position.set(b.x, Math.max(0.17, b.z + (holder ? 0.95 : 0.17)), b.y);
     if (b.inAir) { this.ball.rotation.z += dt * 18; this.ball.rotation.y = Math.atan2(-b.vy, b.vx); } else { this.ball.rotation.z = 0; this.ball.rotation.y = holder ? -holder.face : 0; }
     if (holder) { this.ball.position.x += Math.cos(holder.face) * 0.35; this.ball.position.z += Math.sin(holder.face) * 0.35; this.ball.position.y = 0.9 + holder.z; if (holder.state === 'down' || holder.state === 'tackled') this.ball.position.y = 0.35; }
     this.ballShadow.position.set(b.x, 0.015, b.y); this.ballShadow.visible = b.inAir || b.loose;
@@ -142,6 +170,30 @@ export class Scene {
     this.camLook.x = lerp(this.camLook.x, fx, k); this.camLook.y = lerp(this.camLook.y, lh, k); this.camLook.z = lerp(this.camLook.z, fy, k);
     this.camera.position.copy(this.camPos); this.camera.lookAt(this.camLook);
   }
+}
+
+// ---------- disc-model players ----------
+function poseRig(rig, e, dt, fire) {
+  const g = rig.root;
+  g.position.set(e.x, e.z, e.y);
+  g.rotation.y = -e.face - Math.PI / 2;
+  const sp = Math.hypot(e.vx, e.vy);
+  let clip = 'stand_b_01', loop = true, speed = 1;
+  switch (e.state) {
+    case 'dive': clip = e.hasBall ? 'dive_2h_01' : 'ddiv_02_m'; loop = false; speed = 1.4; break;
+    case 'down': clip = 'fall_f_02'; loop = false; speed = 1.6; break;
+    case 'tackled': clip = 'fall_b_03'; loop = false; speed = 1.4; break;
+    case 'jump': clip = 'hurdle_01'; loop = false; speed = 1.3; break;
+    case 'spin': clip = 'c_spin_02'; loop = false; speed = 1.5; break;
+    case 'stiff': clip = 'bc_stiffarm'; loop = false; speed = 1.5; break;
+    case 'celebrate': clip = 'ts_celeb_01'; break;
+    default:
+      if (e.task === 'set' || e.task === 'kicker') clip = e.role === 'QB' ? 'lu_qb_01_i' : (e.role === 'OL' ? 'lu_cen_01_i' : (e.role === 'WR' ? 'lu_wr_01_i' : (['DL', 'LB', 'CB', 'S'].includes(e.role) ? 'def_ready_01' : 'ready_01')));
+      else if (sp > 1.5) { clip = e.hasBall ? 'rz_run_01' : (sp > 7 ? 'run_01' : 'jog_01'); speed = 0.55 + sp / 9; }
+      else clip = e.task === 'block' && e.engaged >= 0 ? 'hold_01_c' : 'stand_b_01';
+  }
+  if (!rig.play(clip, { loop, speed })) rig.play('stand_b_01');
+  rig.update(dt);
 }
 
 // ---------- players ----------

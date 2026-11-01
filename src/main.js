@@ -121,10 +121,11 @@ function teamSelect(players) {
 async function startGame(teamIds, human) {
   overlay.innerHTML = '';
   game = new Game({ rules, teams: teamIds, human });
-  window.__game = game;                    // for console debugging
+  window.__game = game; window.__scene = scene; window.__assets = assets;   // for console debugging
   if (assets.ready) applyRosters(game);
   scene.build(game.teams);
   hud.setTeams(game.teams);
+  if (assets.ready) scene.useAssets(assets);
   hudEl.style.visibility = 'visible';
   icons = [false, false]; pickBox = [null, null]; paused = false;
   await sound.init(); sound.resume();
@@ -252,6 +253,11 @@ function finalScreen() {
 (async () => {
   hudEl.style.visibility = 'hidden';
   title();
+  // Dev: ?pack=http://127.0.0.1:8779/BASSETS.ZIP loads the archive over local HTTP byte ranges.
+  const packUrl = new URLSearchParams(location.search).get('pack');
+  if (packUrl && /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//.test(packUrl)) {
+    try { await assets.openUrl(packUrl); const t = await assets.soundTable(); assetStatus = `disc data via local server · ${assets.zip.entries.size} files · ${[...t.keys()].filter(k => k.endsWith('.mss')).length} sounds`; title(); return; } catch (e) { console.warn('pack url', e); }
+  }
   // Quietly reopen the disc data if the browser remembered the file handle.
   if (await assets.restore().catch(() => false)) {
     const t = await assets.soundTable();

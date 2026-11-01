@@ -14,7 +14,7 @@ export const GAMES = [
     hint: 'Same bones, house rules.',
     path: 'games/firefly/',
     accent: '#ff4d00',
-    ready: false,
+    ready: true,
   },
   {
     code: 'SUNDIAL',
