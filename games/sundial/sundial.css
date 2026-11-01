@@ -36,6 +36,7 @@ select{font:16px Arial,sans-serif;padding:8px 10px;background:#1a1e2a;color:#fff
 .back{position:fixed;top:14px;left:14px;font-size:18px;letter-spacing:3px;color:#889;padding:6px 12px;border:2px solid #333;background:#000a;transform:skewX(-8deg)}
 .back:hover{color:var(--teal);border-color:var(--teal)}
 #hud{position:fixed;inset:0;pointer-events:none}
+#hud.blood{background:radial-gradient(ellipse at 20% 80%,#a0000088 0,transparent 25%),radial-gradient(ellipse at 80% 25%,#90000088 0,transparent 22%),radial-gradient(ellipse at 50% 50%,transparent 45%,#60000099 100%)}
 #cross{position:absolute;left:50%;top:50%;width:14px;height:14px;margin:-7px 0 0 -7px;border:2px solid #fffc;border-radius:50%;box-shadow:0 0 0 1px #0008}
 #stats{position:absolute;left:24px;bottom:20px;font-size:40px;letter-spacing:3px;color:#fff;text-shadow:3px 3px 0 #000}
 #stats #armour{margin-left:22px;color:var(--teal)}

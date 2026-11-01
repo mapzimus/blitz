@@ -17,6 +17,7 @@ import { TextTable, ARENA_TEXT, STORY_TEXT } from './text.js';
 import { Projectiles } from './projectiles.js';
 import { Pickups } from './pickups.js';
 import { Music } from './music.js';
+import { Fx } from './fx.js';
 
 const $ = s => document.querySelector(s);
 const status = t => { $('#dirstatus').textContent = t; };
@@ -206,6 +207,7 @@ const player = {
   pos: new THREE.Vector3(), vel: new THREE.Vector3(), yaw: 0, pitch: 0,
   eye: 1.5, radius: 0.35, grounded: false, hp: 100, armour: 0, kills: 0, deaths: 0, dead: false, respawnIn: 0, lives: 3, bagTime: 0, out: false,
   weapons: [], cur: 0, cool: 0, reloading: 0, zoom: false, name: 'YOU',
+  lookVel: { x: 0, y: 0 }, sens: 1,
 };
 let sfx = new Sfx(null), anims = null, bind = null, music = null, track = -1;
 const hurtVoices = [], dieVoices = [];
@@ -250,12 +252,22 @@ canvas.addEventListener('mousedown', e => {
 });
 canvas.addEventListener('mouseup', e => { if (e.button === 2) player.zoom = false; else { firing = false; dragging = false; } });
 canvas.addEventListener('click', () => { if (playing() && noLock && !dragging) fireOnce(); });
+// Raw look input is gathered here and applied once per frame in step(), so turning speed does not
+// depend on how often the browser delivers mouse events. Mouse right turns right, mouse up looks up.
+const lookAcc = { x: 0, y: 0 };
 addEventListener('mousemove', e => {
   if (!playing() || !(locked || dragging)) return;
-  const k = player.zoom ? 0.0008 : 0.0022;
-  player.yaw -= e.movementX * k;
-  player.pitch = Math.max(-1.5, Math.min(1.5, player.pitch - e.movementY * k));
+  lookAcc.x += e.movementX; lookAcc.y += e.movementY;
 });
+function applyLook(dt, dx, dy) {
+  const k = (player.zoom ? 0.0009 : 0.0024) * (player.sens || 1);
+  // Light smoothing: most of the input lands this frame, the rest next frame, so micro-jitter is
+  // damped without the sluggish feel of a long filter. Time-corrected so 30 and 144 Hz feel alike.
+  const a = 1 - Math.pow(0.35, dt * 60);
+  player.lookVel.x += (dx - player.lookVel.x) * a; player.lookVel.y += (dy - player.lookVel.y) * a;
+  player.yaw -= player.lookVel.x * k;
+  player.pitch = Math.max(-1.5, Math.min(1.5, player.pitch - player.lookVel.y * k));
+}
 
 // ---------- collision ----------
 const ray = new THREE.Raycaster();
@@ -270,28 +282,32 @@ function step(dt) {
     player.respawnIn -= dt;
     if (!player.out && player.respawnIn <= 0 && (firing || keys.has('Space') || player.respawnIn < -4)) respawn();
   } else {
+    // Look first, so this frame's movement uses the turned heading. Touch drags count as 2.2 mouse pixels each.
+    applyLook(dt, lookAcc.x + touch.look.dx * 2.2, lookAcc.y + touch.look.dy * 2.2);
+    lookAcc.x = lookAcc.y = 0; touch.look.dx = touch.look.dy = 0;
     fwd.set(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
-    right.set(fwd.z, 0, -fwd.x);
+    right.set(-fwd.z, 0, fwd.x); // fwd x up: +X when facing -Z, so D strafes right
     const crouch = keys.has('ControlLeft') || keys.has('KeyC') || touch.held.has('crouch');
     player.eye += ((crouch ? 0.9 : 1.5) - player.eye) * Math.min(1, dt * 12);
     const speed = crouch ? 2.6 : keys.has('ShiftLeft') ? 3.2 : 5.5;
     tmp.set(0, 0, 0);
-    if (keys.has('KeyW')) tmp.add(fwd);
-    if (keys.has('KeyS')) tmp.sub(fwd);
-    if (keys.has('KeyD')) tmp.add(right);
-    if (keys.has('KeyA')) tmp.sub(right);
+    if (keys.has('KeyW') || keys.has('ArrowUp')) tmp.add(fwd);
+    if (keys.has('KeyS') || keys.has('ArrowDown')) tmp.sub(fwd);
+    if (keys.has('KeyD') || keys.has('ArrowRight')) tmp.add(right);
+    if (keys.has('KeyA') || keys.has('ArrowLeft')) tmp.sub(right);
     if (touch.active) { tmp.addScaledVector(fwd, touch.move.y).addScaledVector(right, touch.move.x); }
     if (tmp.lengthSq() > 1) tmp.normalize();
     tmp.multiplyScalar(speed);
-    player.vel.x = tmp.x; player.vel.z = tmp.z;
+    // Accelerate toward the wanted velocity instead of snapping to it: quick on the ground, floaty in the air.
+    const accel = player.grounded ? 14 : 3;
+    player.vel.x += (tmp.x - player.vel.x) * Math.min(1, dt * accel);
+    player.vel.z += (tmp.z - player.vel.z) * Math.min(1, dt * accel);
     player.vel.y -= 16 * dt;
     if (player.grounded && (keys.has('Space') || touch.held.has('jump'))) { player.vel.y = 6; player.grounded = false; }
     if (touch.active) {
-      player.yaw -= touch.look.dx * 0.005; player.pitch = Math.max(-1.5, Math.min(1.5, player.pitch - touch.look.dy * 0.005));
-      touch.look.dx = touch.look.dy = 0;
       for (const k of touch.taps.splice(0)) { if (k === 'next') selectWeapon(player.cur + 1); if (k === 'reload') reload(); if (k === 'board') $('#board').hidden = !$('#board').hidden; if (k === 'fire') fireOnce(); }
     }
-    const move = tmp.clone().multiplyScalar(dt);
+    const move = new THREE.Vector3(player.vel.x, 0, player.vel.z).multiplyScalar(dt);
     if (move.lengthSq() > 0) {
       const dir = move.clone().normalize();
       for (const h of [0.4, 1.2]) {
@@ -464,9 +480,13 @@ function hitscan(origin, dir, range, dmg, key, tracer, headDmg) {
     if (bot) {
       const head = world.bots.isHead(bot, hits[0].object);
       const d = head ? Math.max(dmg, headDmg || dmg) * 1.5 : dmg;
+      if (world.fx) world.fx.blood(end, dir, head ? 1.8 : Math.min(1.5, 0.5 + d / 40));
       if (world.bots.hit(bot, d, 'player')) { if (head) msg(`HEADSHOT  ${bot.name.toUpperCase()}`); }
       else if (d >= 15 && hurtVoices.length) sfx.play(pick(hurtVoices), { pos: bot.group.position, listener: camera.position, volume: 0.6 });
-    } else if (Math.random() < 0.25) sfx.play(pick(SFX.ricochet), { pos: end, listener: camera.position, volume: 0.5 });
+    } else {
+      if (world.fx && hits[0].face) world.fx.puff(end, hits[0].face.normal.clone().transformDirection(hits[0].object.matrixWorld));
+      if (Math.random() < 0.25) sfx.play(pick(SFX.ricochet), { pos: end, listener: camera.position, volume: 0.5 });
+    }
   }
   if (tracer) {
     const g = new THREE.BufferGeometry().setFromPoints([origin.clone().add(new THREE.Vector3(0.1, -0.1, 0)), end]);
@@ -489,6 +509,7 @@ function projectileHit(p) {
 }
 function splash(pos, radius, dmg, owner, direct) {
   if (world.bots) {
+    if (world.fx) for (const b of world.bots.list) { if (!b.dead && b.group.position.distanceTo(pos) < radius + 0.5) world.fx.blood(b.group.position.clone().setY(b.group.position.y + 1), null, 1.3); }
     if (direct && direct !== 'player') world.bots.hit(direct, dmg, owner);
     if (radius > 0.6) world.bots.splash(pos, radius, dmg, owner);
   }
@@ -541,6 +562,7 @@ function damagePlayer(dmg, by) {
   if (player.dead || dmg <= 0 || player.god) return;
   const absorbed = Math.min(player.armour, Math.round(dmg * 0.66));
   player.armour -= absorbed; player.hp -= dmg - absorbed; hurt = 0.3;
+  const hud = $('#hud'); hud.classList.add('blood'); clearTimeout(damagePlayer.t); damagePlayer.t = setTimeout(() => hud.classList.remove('blood'), 450);
   if (hurtVoices.length) sfx.play(pick(hurtVoices), { volume: 0.5 });
   if (player.hp <= 0) die(by);
   updateHud();
@@ -570,6 +592,12 @@ function respawn() {
   updateHud();
 }
 function onBotKilled(bot, by) {
+  if (world.fx) {
+    const from = bot.group.position.clone(); from.y += 1;
+    const h = castDown(from, 3);
+    world.fx.blood(bot.group.position.clone().setY(bot.group.position.y + 1), null, 1.5);
+    world.fx.pool(bot.group.position, h ? h.point.y : bot.group.position.y, 0.8 + Math.random() * 0.6);
+  }
   if (by === 'player') { player.kills++; msg(`SPLIT  ${bot.name.toUpperCase()}`); if (dieVoices.length) sfx.play(pick(dieVoices), { pos: bot.group.position, listener: camera.position }); }
   else if (by && by.kills !== undefined) by.kills++;
   if (match.mode === 'bag' && match.holder === bot) dropBag(bot.group.position);
@@ -592,9 +620,14 @@ function onBotShoot(bot, w, from, target, hits, who) {
     const others = world.bots.list.filter(b => b !== bot && !b.dead).map(b => b.group);
     const hs = ray.intersectObjects([...others, ...world.solid], true);
     const dist = from.distanceTo(target);
-    if (hs.length && hs[0].distance < dist - 0.5) { const ob = world.bots.find(hs[0].object); if (ob) world.bots.hit(ob, Math.round(dmg * 0.6), bot); return; }
+    if (hs.length && hs[0].distance < dist - 0.5) {
+      const ob = world.bots.find(hs[0].object);
+      if (ob) { if (world.fx) world.fx.blood(hs[0].point, dir, 0.8); world.bots.hit(ob, Math.round(dmg * 0.6), bot); }
+      else if (world.fx && hs[0].face) world.fx.puff(hs[0].point, hs[0].face.normal.clone().transformDirection(hs[0].object.matrixWorld));
+      return;
+    }
     if (who === 'player') damagePlayer(dmg, bot);
-    else if (who) world.bots.hit(who, Math.round(dmg * 0.6), bot);
+    else if (who) { if (world.fx) world.fx.blood(target, dir, 0.8); world.bots.hit(who, Math.round(dmg * 0.6), bot); }
   }
 }
 function takePickup(p) {
@@ -675,6 +708,8 @@ async function enter(levelName) {
   if (world.pickups) for (const p of world.pickups.list) scene.remove(p.group);
   if (world.proj) for (const p of world.proj.list) world.proj.remove(p);
   for (const t of tracers) scene.remove(t); tracers.length = 0;
+  if (world.fx) world.fx.clear();
+  world.fx = new Fx({ scene, pak });
 
   const map = parseMap(pak.get(`bg/level${n}/level${n}.raw`));
   const built = mapToGroup(map, texSrc);
@@ -779,6 +814,7 @@ function render(dt) {
   if (playing()) step(dt);
   else if (world.group) { camera.position.copy(player.pos); camera.position.y += player.eye; }
   flash.intensity *= 0.6;
+  if (world.fx) world.fx.update(dt);
   for (const t of tracers) { t.userData.t += dt; t.material.opacity = Math.max(0, 0.9 - t.userData.t * 8); if (t.userData.t > 0.15) { scene.remove(t); t.userData.done = true; } }
   if (tracers.some(t => t.userData.done)) tracers.splice(0, tracers.length, ...tracers.filter(t => !t.userData.done));
   if (hurt > 0) { hurt -= dt; $('#hud').style.boxShadow = `inset 0 0 ${80 * hurt * 4}px #d00`; } else $('#hud').style.boxShadow = '';
