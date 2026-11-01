@@ -18,7 +18,7 @@ import { Projectiles } from './projectiles.js';
 import { Pickups } from './pickups.js';
 import { Music } from './music.js';
 import { Fx } from './fx.js';
-import { Story } from './story.js';
+import { Story, placed } from './story.js';
 import { MISSIONS, loadMission } from './missions/index.js';
 
 const $ = s => document.querySelector(s);
@@ -357,7 +357,10 @@ function step(dt) {
   if (world.pickups) world.pickups.update(dt, player.dead ? { pos: new THREE.Vector3(0, 9999, 0) } : player, takePickup, world.bots);
   if (world.story) {
     world.story.update(dt, player);
-    if (!match.over) $('#clock').textContent = `${Math.floor(world.story.time / 60)}:${String(Math.floor(world.story.time % 60)).padStart(2, '0')}`;
+    if (!match.over) {
+      const sec = Math.floor(world.story.time);
+      if (sec !== world.story.hudSec) { world.story.hudSec = sec; updateHud(); $('#clock').textContent = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`; }
+    }
   }
   modeTick(dt);
 
@@ -593,8 +596,14 @@ function checkElimination() {
 }
 function respawn() {
   if (world.story) {
-    const st = world.story.start;
-    if (st) { world.spawn.set(st.pos.x, st.pos.y + 0.2, st.pos.z); player.yaw = st.yaw; player.pitch = 0; }
+    // First start point of this difficulty that has a floor under it (some sit on lifts or ledges the
+    // collision mesh does not cover); then any nav node with a floor.
+    const S = world.story;
+    const cands = (S.data.starts || []).filter(s => placed(s.cond, S.diff)).map(s => S.node(s.node)).filter(Boolean).map(nd => ({ pos: nd.pos, yaw: nd.yaw * Math.PI / 180 }));
+    let st = null;
+    for (const c of cands.concat(S.start ? [S.start] : [])) { const h = castDown(c.pos.clone().setY(c.pos.y + 1.5), 4); if (h) { st = { pos: c.pos.clone().setY(h.point.y), yaw: c.yaw }; break; } }
+    if (!st) { for (const n of world.nodes) { const h = castDown(n.pos.clone().setY(n.pos.y + 1.5), 4); if (h) { st = { pos: n.pos.clone().setY(h.point.y), yaw: 0 }; break; } } }
+    if (st) { world.spawn.set(st.pos.x, st.pos.y + 0.2, st.pos.z); player.yaw = st.yaw + Math.PI; player.pitch = 0; } // models face +Z at yaw 0, the camera faces -Z
     else { const s = pick(world.nodes); world.spawn.set(s.pos.x, s.pos.y + 0.2, s.pos.z); }
     player.pos.copy(world.spawn); player.vel.set(0, 0, 0); player.hp = 100; player.armour = 0; player.dead = false; player.out = false;
     player.weapons = [];
@@ -841,7 +850,7 @@ const storyHooks = {
   sfx: name => { const map = { objective: SFX.armour, door: 'door_open', switch: SFX.pickup }; const k = map[name] || name; if (k) sfx.play(k, { volume: 0.6 }); },
   end: (win, why) => missionEnd(win, why),
   player: () => player,
-  useHeld: () => useKey.held || touch.held.has('jump') && false,
+  useHeld: () => useKey.held || touch.held.has('use'),
   give: key => giveWeapon(key),
   take: key => { player.weapons = player.weapons.filter(w => w.key !== key); selectWeapon(0); },
   pickup: p => storyPickup(p),
@@ -900,7 +909,17 @@ function renderMissions() {
     const stars = rec ? '★'.repeat(rec.done) : '';
     return `<button class="match" data-level="${l}" ${prev ? '' : 'disabled'}><span>${i + 1}.</span>${esc(arenaName(l, 'st'))} <small>${rec ? `done · ${stars}` : prev ? '' : 'locked'}</small></button>`;
   }).join('');
-  el.querySelectorAll('.match').forEach(b => b.addEventListener('click', () => startMission(parseInt(b.dataset.level), parseInt($('#sdiff').value) || 0)));
+  el.querySelectorAll('.match').forEach(b => b.addEventListener('click', () => showBriefing(parseInt(b.dataset.level))));
+}
+// Mission briefings are the game's own text; the start button sits under them.
+const BRIEF_TEXT = { 35: 1053, 20: 1054, 34: 1055, 41: 1057, 38: 1056, 48: 1059, 31: 1058, 32: 1060, 40: 1061, 39: 1049 };
+function showBriefing(level) {
+  const el = $('#brief'); if (!el) return;
+  const t = text.get(BRIEF_TEXT[level], '') || `${arenaName(level, 'st')}\n\nRetrieve the time crystal and escape through the portal.`;
+  el.innerHTML = `${esc(t)}<div class="row" style="margin-top:10px"><button class="btn" id="startm">START MISSION</button><span class="fine">${esc(arenaName(level, 'st'))} · ${['Easy', 'Normal', 'Hard'][parseInt($('#sdiff').value) || 0]}</span></div>`;
+  el.hidden = false;
+  $('#startm').onclick = () => startMission(level, parseInt($('#sdiff').value) || 0);
+  el.scrollIntoView({ block: 'nearest' });
 }
 function startMission(level, diff) {
   match.preset = null;

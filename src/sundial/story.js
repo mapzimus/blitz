@@ -72,20 +72,24 @@ export class Story {
       this.props.push(prop);
       if (!/tree|plant|fence|grass|bush|leaf|light|lamp|wire|pipe|cable|beam|rope|chain|dial|wheel|poster|sign|tannoy|monitor|telly|mirror/i.test(p.path)) this.world.solid.push(...g.children);
     }
-    // Doors and other node-anchored objects.
-    for (const o of d.objects || []) {
-      if (!placed(o.cond, diff) || !o.path) continue;
+    // Doors and other node-anchored objects. Runtime arrays keep the data's indices (null where a record is
+    // not placed on this difficulty) so scripts can use the numbers straight from the tables.
+    (d.objects || []).forEach((o, oi) => {
+      this.doors[oi] = null;
+      if (!placed(o.cond, diff) || !o.path) return;
       const nd = this.node(o.node);
       const pos = nd && (o.pos[0] === 0 && o.pos[1] === 0 && o.pos[2] === 0) ? nd.pos.clone() : new THREE.Vector3(...o.pos);
       const yaw = (o.pos[0] === 0 && o.pos[1] === 0 && o.pos[2] === 0 && nd ? nd.yaw : o.yaw) || 0;
       const g = this.place(o.path, pos, [0, yaw * DEG, 0]);
-      if (!g) continue;
-      const box = this.bounds(g);
-      const door = { rec: o, group: g, pos, yaw, base: pos.y, height: box.max.y - box.min.y, open: 0, want: 0, locked: !!(o.w9 & 0x20) || o.type === 6, auto: o.type !== 6, idx: this.doors.length, range: Math.max(2.5, o.f6 * 1.4) };
+      if (!g) return;
+      let box = this.bounds(g);
+      // Door models are built around their centre; stand them on the node's floor.
+      if (box.min.y < pos.y - 0.2) { g.position.y += pos.y - box.min.y; g.updateMatrixWorld(true); box = this.bounds(g); }
+      const door = { rec: o, group: g, pos, yaw, base: g.position.y, height: box.max.y - box.min.y, open: 0, want: 0, locked: !!(o.w9 & 0x20) || o.type === 6, auto: o.type !== 6, idx: oi, range: Math.max(2.5, o.f6 * 1.4) };
       g.userData.door = door;
-      this.doors.push(door);
+      this.doors[oi] = door;
       this.world.solid.push(...g.children);
-    }
+    });
     // Pickups at nav nodes.
     for (const p of d.pickups || []) {
       if (!placed(p.cond, diff)) continue;
@@ -103,32 +107,35 @@ export class Story {
       this.pickups.push({ rec: p, group: g, base: nd.pos.y + 0.5, spin: Math.random() * 6, taken: false, kind: p.kind, weapon: p.weapon && p.weapon.replace(/\.raw$/, ''), model: p.model });
     }
     // Enemy spawners: start closed; the condition function decides when they open.
-    for (const s of d.spawners || []) {
-      if (!placed(s.cond, diff) || !s.char || !s.char.model) continue;
-      this.spawners.push({ rec: s, idx: this.spawners.length, spawned: 0, alive: [], cool: 0, open: !s.condFn, done: false });
-    }
+    (d.spawners || []).forEach((s, si) => {
+      this.spawners[si] = null;
+      if (!placed(s.cond, diff) || !s.char || !s.char.model) return;
+      this.spawners[si] = { rec: s, idx: si, spawned: 0, alive: [], cool: 0, open: !s.condFn, done: false };
+    });
     // Cameras and turrets.
-    for (const a of d.animObjects || []) {
-      if (!placed(a.cond, diff) || !a.path) continue;
+    (d.animObjects || []).forEach((a, ai) => {
+      this.cameras[ai] = null;
+      if (!placed(a.cond, diff) || !a.path) return;
       const nd = this.node(a.node);
       const pos = nd ? nd.pos.clone() : new THREE.Vector3(...a.pos);
       const g = this.place(a.path, pos, [0, (nd ? nd.yaw : 0) * DEG, 0]);
-      if (!g) continue;
+      if (!g) return;
       const kind = /cctv|cam/i.test(a.path) ? 'camera' : /gun/i.test(a.path) ? 'turret' : 'anim';
-      const cam = { rec: a, group: g, pos, kind, yaw0: (nd ? nd.yaw : 0) * DEG, t: Math.random() * 6, on: true, hp: 40, dead: false, name: this.str(a.text), seen: 0, cool: 0 };
+      const cam = { rec: a, group: g, pos, kind, yaw0: (nd ? nd.yaw : 0) * DEG, t: Math.random() * 6, on: true, hp: 40, dead: false, name: this.str(a.text), seen: 0, cool: 0, idx: ai };
       g.userData.camera = cam;
-      this.cameras.push(cam);
+      this.cameras[ai] = cam;
       if (kind !== 'anim') this.world.solid.push(...g.children);
-    }
+    });
     // Switches, buttons, consoles.
-    for (const n of d.interact || []) {
-      if (!placed(n.cond, diff) || !n.path) continue;
+    (d.interact || []).forEach((n, ni) => {
+      this.switches[ni] = null;
+      if (!placed(n.cond, diff) || !n.path) return;
       const g = this.place(n.path, new THREE.Vector3(...n.pos), [0, n.yaw * DEG, 0]);
-      if (!g) continue;
-      const sw = { rec: n, group: g, pos: new THREE.Vector3(...n.pos), used: false, id: n.id, fn: n.fn, cool: 0 };
+      if (!g) return;
+      const sw = { rec: n, group: g, pos: new THREE.Vector3(...n.pos), used: false, id: n.id, fn: n.fn, cool: 0, idx: ni };
       g.userData.switch = sw;
-      this.switches.push(sw);
-    }
+      this.switches[ni] = sw;
+    });
     // Lifts: a platform that rides between its node and the matching upper node when stood on.
     for (const l of d.lifts || []) {
       const nd = this.node(l.node); if (!nd || !l.path) continue;
@@ -230,7 +237,7 @@ export class Story {
   }
   tickSpawners(dt, player) {
     for (const s of this.spawners) {
-      if (s.done) continue;
+      if (!s || s.done) continue;
       s.alive = s.alive.filter(b => !b.dead);
       if (!s.open) { if (this.spawnerOpen(s, player)) s.open = true; else continue; }
       s.cool -= dt;
@@ -263,6 +270,7 @@ export class Story {
     if (this.timers.some(t => t.done)) this.timers = this.timers.filter(t => !t.done);
     // doors
     for (const dr of this.doors) {
+      if (!dr) continue;
       const near = !player.dead && player.pos.distanceTo(dr.pos) < dr.range;
       if (dr.auto && !dr.locked && near) { dr.want = 1; dr.hold = 1.2; }
       else if (dr.hold > 0) { dr.hold -= dt; if (dr.hold <= 0) dr.want = 0; }
@@ -286,6 +294,7 @@ export class Story {
     }
     // switches: walk up and press E (or touch button)
     for (const sw of this.switches) {
+      if (!sw) continue;
       sw.cool -= dt;
       if (sw.cool > 0 || player.dead) continue;
       if (player.pos.distanceTo(sw.pos.clone().setY(player.pos.y)) < 1.7 && Math.abs(player.pos.y - sw.pos.y) < 2.2) {
@@ -295,7 +304,7 @@ export class Story {
     }
     // cameras and turrets
     for (const c of this.cameras) {
-      if (c.dead) continue;
+      if (!c || c.dead) continue;
       c.t += dt;
       if (c.kind === 'camera' && c.on) {
         c.group.rotation.y = c.yaw0 + Math.sin(c.t * 0.6) * 0.8;
@@ -305,7 +314,7 @@ export class Story {
           const pe = player.pos.clone(); pe.y += 1.2;
           const to = pe.clone().sub(eye); const dist = to.length();
           if (dist < 16) {
-            const facing = new THREE.Vector3(-Math.sin(c.group.rotation.y), 0, -Math.cos(c.group.rotation.y));
+            const facing = new THREE.Vector3(Math.sin(c.group.rotation.y), 0, Math.cos(c.group.rotation.y)); // models face +Z at yaw 0
             const flat = to.clone().setY(0).normalize();
             if (facing.dot(flat) > 0.6 && this.bots.canSee(eye, pe)) { c.seen += dt; if (c.seen > 0.6) { c.seen = 0; c.cool = 6; this.emit('seen', { camera: c, name: c.name }); } }
             else c.seen = Math.max(0, c.seen - dt);
@@ -349,7 +358,7 @@ export class Story {
     else if (n.fn === '0x2a5870') { this.alarm = !this.alarm; this.anims.add(n.w11); this.emit('alarm', { on: this.alarm }); this.msg(this.alarm ? 'ALARM ACTIVATED' : 'ALARM DEACTIVATED', 2000); }
     else if (n.fn === '0x2a5db8' || n.fn === '0x2a5aa8') {
       const ids = (n.data || []).filter(x => x < 4000);
-      for (const id of ids) { const c = this.cameras.find(c => c.rec.id === id); if (c) c.on = !c.on; const d = this.doors.find(d => d.rec.id === id); if (d && this.doors.indexOf(d) === id) this.setDoor(id, true); }
+      for (const id of ids) { const c = this.cameras.find(c => c && c.rec.id === id); if (c) c.on = !c.on; const d = this.doors.find(d => d && d.rec.id === id); if (d && this.doors.indexOf(d) === id) this.setDoor(id, true); }
       ids.filter(id => id < 100).forEach(id => { const d = this.doors[id]; if (d) { d.locked = false; d.auto = true; } });
       this.msg('SYSTEM TOGGLED', 1500);
     }

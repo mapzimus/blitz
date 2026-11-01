@@ -15,7 +15,8 @@ export function initTouch(force = false) {
     <div class="tb" data-k="next">GUN</div>
     <div class="tb" data-k="reload">RLD</div>
     <div class="tb" data-k="crouch">CRCH</div>
-    <div class="tb" data-k="board">TAB</div>`;
+    <div class="tb" data-k="board">TAB</div>
+    <div class="tb" data-k="use">USE</div>`;
   document.body.appendChild(root);
   const left = root.querySelector('.left'), right = root.querySelector('.right'), knob = root.querySelector('.knob');
   let stickId = null, stickOrigin = null, lookId = null, lookLast = null;

@@ -76,6 +76,7 @@ select{font:16px Arial,sans-serif;padding:8px 10px;background:#1a1e2a;color:#fff
 #touch .tb[data-k=reload]{right:28px;bottom:220px}
 #touch .tb[data-k=crouch]{right:28px;bottom:30px}
 #touch .tb[data-k=board]{right:24px;top:70px;width:48px;height:48px;font-size:11px}
+#touch .tb[data-k=use]{right:130px;bottom:110px;border-color:var(--teal)}
 .medal{font-size:26px;letter-spacing:4px;margin-top:8px}
 #objectives{position:absolute;right:24px;top:60px;max-width:300px;font-family:Arial,sans-serif;font-size:14px;line-height:1.35;color:#fff;text-shadow:1px 1px 0 #000;background:#0008;border:2px solid #444;padding:8px 12px}
 #objectives h4{font-family:Impact,sans-serif;font-size:14px;letter-spacing:3px;color:var(--amber);margin:6px 0 2px}
