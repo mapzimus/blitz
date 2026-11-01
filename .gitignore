@@ -35,3 +35,6 @@ __pycache__/
 *.wav
 *.png
 !src/hub/**/*.png
+
+# Pages Functions route folder (the generic pack/ rule above must not swallow it)
+!functions/pack/
