@@ -7,7 +7,7 @@ export const GAMES = [
     hint: 'Seven a side. Thirty yards. No flags.',
     path: 'games/kodiak/',
     accent: '#ffb03b',
-    ready: false,
+    ready: true,
   },
   {
     code: 'FIREFLY',

@@ -3,6 +3,8 @@ Usage: python -I tools/txd.py <file.rtd|dir> <outdir>
 """
 import os, struct, sys
 from PIL import Image
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import gs
 
 def chunks(d, o, e):
     while o + 12 <= e:
@@ -97,9 +99,9 @@ def decode_native(d, o, e):
             px[i % w, i // w] = (clut[k], clut[k+1], clut[k+2], ps2_alpha(clut[k+3]))
     elif depth == 4:
         n = w * h
-        swz = rrw is not None and rrw * 2 == w and rrh * 4 == h
+        swz = rrw is not None and rrw * 2 == w and rrh * 2 == h
         if swz:
-            idx = unswizzle4(pix[:n // 2], w, h)
+            idx = gs.unswizzle4_ct16(pix[:n // 2], w, h, rrw, rrh)
         else:
             idx = bytearray(n)
             for i in range(n // 2):

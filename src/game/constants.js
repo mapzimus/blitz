@@ -9,7 +9,7 @@ export const FIELD = {
 // Rule set. Everything that makes Blitz "Blitz" is a knob here so Task 2 (the tweaked version)
 // can swap a second RULES object in without touching the simulation.
 export const RULES = {
-  name: 'BLITZ 2002',
+  name: 'CLASSIC RULES',
   playersPerSide: 7,
   firstDownYards: 30,
   downs: 4,

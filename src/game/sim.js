@@ -99,7 +99,7 @@ export class Game {
     const kd = this.dir[this.kickoffTeam];
     const power = MOVE.kickPower * (0.9 + Math.random() * 0.2);
     const ret = this.ents[this.poss][1];
-    this.throwBall(k, ret.x + kd * (Math.random() * 10 - 2), ret.y + (Math.random() * 14 - 7), 'kick', 2.6, power);
+    this.throwBall(k, ret.x + kd * (Math.random() * 10 - 2), ret.y + (Math.random() * 14 - 7), 'kick', 2.3, power);
     this.ball.target = 1;
     this.phase = PHASE.LIVE; this.liveT = 0; this.clockStopped = true;
     this.emit('sound', { name: 'kick' });
@@ -166,11 +166,11 @@ export class Game {
     if (this.phase !== PHASE.PRESNAP) return;
     const off = this.offense(), def = this.defense();
     const dir = this.dir[this.poss];
-    this.phase = PHASE.LIVE; this.liveT = 0; this.handedOff = false; this.caught = false; this.qbT = 0;
+    this.phase = PHASE.LIVE; this.liveT = 0; this.handedOff = false; this.caught = false; this.qbT = 0; this.intercepted = false;
     this.clockStopped = false; this.stats.plays++;
     this.giveBall(this.poss, 0);
     const pl = this.offPlay;
-    if (this.special === 'punt' || this.special === 'fg') {
+    if (this.special === 'punt' || this.special === 'fg' || this.special === 'pat') {
       off.forEach((e, i) => { e.task = i === 0 ? 'kicker' : 'block'; });
       def.forEach((e, i) => { e.task = i === 6 ? 'return' : 'rush'; });
       const ret = def[6]; [ret.x, ret.y] = this.toWorld(this.poss, this.special === 'punt' ? 40 : 30, 0);
@@ -223,17 +223,19 @@ export class Game {
 
   // ---------- ball flight ----------
   throwBall(from, tx, ty, kind, arc = 1, speed = null) {
+    // arc > 1 = slower, higher ball (same landing spot, longer hang time)
     const b = this.ball;
     this.dropBall();
-    b.inAir = true; b.loose = false; b.kind = kind;
+    b.inAir = true; b.loose = false; b.kind = kind; b.lateral = false; b.deflected = false;
     b.x = from.x; b.y = from.y; b.z = kind === 'kick' || kind === 'punt' ? 0.2 : 1.8;
     const d = dist2(b.x, b.y, tx, ty);
     const v = speed || (kind === 'bullet' ? MOVE.ballSpeedBullet : MOVE.ballSpeedLob);
-    const t = Math.max(0.35, d / v);
-    b.vx = (tx - b.x) / t; b.vy = (ty - b.y) / t;
+    const t = Math.max(0.35, d / v) * arc;
     const g = MOVE.gravity;
-    b.vz = (g * t) / 2 * arc - (b.z - 1.2) / t;   // land around catch height
-    b.landX = tx; b.landY = ty; b.landT = t; b.landZ = 1.2;
+    const landZ = 1.2;
+    b.vx = (tx - b.x) / t; b.vy = (ty - b.y) / t;
+    b.vz = (landZ - b.z) / t + 0.5 * g * t;
+    b.landX = tx; b.landY = ty; b.landT = t; b.landZ = landZ; b.flightT = 0;
     b.thrower = { team: from.team, idx: from.idx };
     from.hasBall = false;
   }
@@ -254,6 +256,9 @@ export class Game {
     if (this.special === 'kickoff' || this.special === 'punt') this.clockStopped = reason !== 'tackle';
     const c = this.carrier();
     if (c) setState(c, 'tackled', 1.2);
+    if (reason === 'tackle' && this.intercepted) this.say('Return ends at the ' + Math.round(this.yardline(x, this.poss)) + '.');
+    else if (reason === 'tackle' && !this.special) { const gain = (x - this.los) * dir; this.say(gain >= 0 ? `Tackled. Gain of ${gain.toFixed(0)}.` : `Tackled for a loss of ${(-gain).toFixed(0)}.`); }
+    else if (reason === 'tackle') this.say('Return ends at the ' + Math.round(this.yardline(x, this.poss)) + '.');
   }
 
   resolveDead() {
@@ -264,7 +269,7 @@ export class Game {
     const t = this.poss, dir = this.dir[t];
     if (reason === 'score') {
       if (this.special === 'pat2') { this.score[t] += r.points.patConv; this.special = null; this.banner('2 POINTS!', ''); this.afterScore(t); return; }
-      if (this.special === 'fg') { this.score[t] += r.points.fg; this.banner('FIELD GOAL', 'GOOD'); this.scored(t); return; }
+      if (this.special === 'fg') { this.score[t] += r.points.fg; this.banner('FIELD GOAL', 'GOOD'); this.scored(t); this.special = null; this.afterScore(t); return; }
       if (this.special === 'pat') { this.score[t] += r.points.patKick; this.special = null; this.afterScore(t); return; }
       this.score[t] += r.points.td;
       this.scored(t);
@@ -284,8 +289,12 @@ export class Game {
     if (this.special === 'pat') { this.special = null; this.say('Extra point is no good.'); this.afterScore(t); return; }
     if (this.special === 'pat2') { this.special = null; this.say('Conversion fails.'); this.afterScore(t); return; }
     if (reason === 'touchback') { this.special = null; this.newDrive(this.poss, this.dir[this.poss] > 0 ? r.touchbackSpot : FIELD.length - r.touchbackSpot); return; }
-    if (this.special === 'kickoff' || this.special === 'punt') { this.special = null; this.newDrive(this.poss, clamp(x, 1, 99)); return; }
-    if (reason === 'turnover') { this.special = null; this.newDrive(this.poss, clamp(x, 1, 99)); return; }
+    if (this.special === 'kickoff' || this.special === 'punt') {
+      this.special = null;
+      if (this.yardline(x, this.poss) <= 0) { this.say('Touchback.'); this.newDrive(this.poss, this.dir[this.poss] > 0 ? r.touchbackSpot : FIELD.length - r.touchbackSpot); return; }
+      this.newDrive(this.poss, clamp(x, 1, 99)); return;
+    }
+    if (reason === 'turnover' || this.intercepted) { this.special = null; this.intercepted = false; this.newDrive(this.poss, clamp(x, 1, 99)); return; }
     if (this.quarterOver()) return;
     // normal down advance
     this.special = null;
