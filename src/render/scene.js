@@ -38,7 +38,7 @@ export class Scene {
     this.scene.add(new THREE.HemisphereLight(0xcfd8ff, 0x203018, 0.75));
     const sun = new THREE.DirectionalLight(0xfff2dd, 1.6);
     sun.position.set(50, 80, -40); sun.target.position.set(50, 0, 26); this.scene.add(sun.target);
-    sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
+    sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03;
     const c = sun.shadow.camera; c.left = -70; c.right = 70; c.top = 40; c.bottom = -40; c.near = 10; c.far = 200;
     this.scene.add(sun);
     const fill = new THREE.DirectionalLight(0x8fb0ff, 0.5); fill.position.set(50, 40, 90); this.scene.add(fill);
@@ -111,7 +111,7 @@ export class Scene {
         for (const p of this.players[t]) p.group.visible = false;
       }
       if (this.world) { for (const o of this.world.children) if (o.userData.drawn) o.visible = false; }
-      this.scene.children.filter(o => o.isHemisphereLight).forEach(l => { l.intensity = 1.4; });
+      this.scene.children.filter(o => o.isHemisphereLight).forEach(l => { l.intensity = 1.0; });   // let the sun do the shaping; grass now takes shadows
       this.assetsOn = true;
     } catch (e) { console.error('useAssets failed', e); }
   }

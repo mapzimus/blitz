@@ -42,8 +42,8 @@ function partGeometry(part) {
 async function materialFor(assets, mat, opts = {}) {
   const name = opts.rename ? opts.rename(mat.texture) : mat.texture;
   const map = name ? await threeTexture(assets, name, opts.hints) : null;
-  const Mat = opts.unlit ? THREE.MeshBasicMaterial : THREE.MeshLambertMaterial;
-  const m = new Mat({ map: map || null, color: map ? 0xffffff : 0x8a8a8a, vertexColors: !!opts.vertexColors, side: opts.doubleSide ? THREE.DoubleSide : THREE.FrontSide, transparent: !!opts.transparent, alphaTest: opts.transparent ? 0.3 : 0 });
+  const Mat = opts.unlit ? THREE.MeshBasicMaterial : opts.shiny ? THREE.MeshPhongMaterial : THREE.MeshLambertMaterial;
+  const m = new Mat({ ...(opts.shiny ? { shininess: 45, specular: 0x666666 } : {}), map: map || null, color: map ? 0xffffff : 0x8a8a8a, vertexColors: !!opts.vertexColors, side: opts.doubleSide ? THREE.DoubleSide : THREE.FrontSide, transparent: !!opts.transparent, alphaTest: opts.transparent ? 0.3 : 0 });
   if (opts.depthWrite === false) { m.depthWrite = false; m.depthTest = false; }
   return m;
 }
@@ -79,7 +79,7 @@ export async function buildField(assets) {
   const grass = await threeTexture(assets, 'flgra_1b', ['fl_fnmaf.rtd']);
   if (grass) {
     grass.repeat.set(24, 40);
-    const plane = new THREE.Mesh(new THREE.PlaneGeometry(2700, 4500), new THREE.MeshBasicMaterial({ map: grass, color: 0xb8b8b8 }));
+    const plane = new THREE.Mesh(new THREE.PlaneGeometry(2700, 4500), new THREE.MeshLambertMaterial({ map: grass, color: 0xd4d4d4 }));
     plane.position.z = -0.6; plane.receiveShadow = true; g.add(plane);
   }
   const lines = await buildStatic(assets, 'fl_nnmaf.dff', { hints: ['fl_fnmaf.rtd'], transparent: true, doubleSide: true });
@@ -201,7 +201,7 @@ export class PlayerKit {
       const atom = model.atomics[ai]; const geo = model.geometries[atom.geometry];
       for (const part of geo.parts) {
         const bg = partGeometry(part);
-        const mat = await materialFor(this.assets, geo.materials[part.material] || {}, { rename, hints: [`${teamCode}_p_${home ? 'h' : 'a'}.rtd`, 'teams1.rtd', 'teams2.rtd', 'teams3.rtd', 'teams4.rtd'] });
+        const mat = await materialFor(this.assets, geo.materials[part.material] || {}, { rename, shiny: model === this.helmet, hints: [`${teamCode}_p_${home ? 'h' : 'a'}.rtd`, 'teams1.rtd', 'teams2.rtd', 'teams3.rtd', 'teams4.rtd'] });
         if (atom.skin) {
           const nv = geo.nvert; const si = new Uint16Array(nv * 4), sw = new Float32Array(nv * 4);
           const idx = atom.skin.indices, w = atom.skin.weights;
@@ -233,7 +233,7 @@ export class PlayerKit {
           const inverses = bones.map((b, i) => new THREE.Matrix4());
           for (const blk of atom.skin.bones) { const fi = this.tableToFrame[blk.index]; if (fi !== undefined) inverses[fi].fromArray(blk.inverseBind); }
           mesh.bind(new THREE.Skeleton(bones, inverses), new THREE.Matrix4());
-          mesh.castShadow = true; mesh.frustumCulled = false; body.add(mesh); meshes.push(mesh);
+          mesh.castShadow = true; mesh.receiveShadow = true; mesh.frustumCulled = false; body.add(mesh); meshes.push(mesh);
         } else {
           const mesh = new THREE.Mesh(bg, mat); mesh.castShadow = true;
           bones[this.frameOfId[2] ?? 15].add(mesh);      // rigid pieces modelled around the head (HAnim id 2)

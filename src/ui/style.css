@@ -1,6 +1,6 @@
 :root{--amber:#ffb03b;--red:#d62828;--blue:#1d4ed8;--ink:#0b0d12;--chrome:#e8e8ea;}
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%;background:#000;color:var(--chrome);font-family:Impact,"Arial Narrow Bold","Helvetica Neue",Arial,sans-serif;overflow:hidden;user-select:none}
+html,body{height:100%;touch-action:manipulation;-webkit-tap-highlight-color:transparent;background:#000;color:var(--chrome);font-family:Impact,"Arial Narrow Bold","Helvetica Neue",Arial,sans-serif;overflow:hidden;user-select:none}
 #app{position:relative;width:100vw;height:100vh}
 #gl{position:absolute;inset:0;width:100%;height:100%;display:block}
 #hud,#overlay{position:absolute;inset:0;pointer-events:none}
@@ -53,6 +53,18 @@ html,body{height:100%;background:#000;color:var(--chrome);font-family:Impact,"Ar
 .code{font-size:56px;color:var(--amber);letter-spacing:10px;text-shadow:3px 3px 0 #000;margin:10px 0}
 .icon{position:absolute;width:34px;height:34px;border-radius:50%;border:3px solid #fff;display:flex;align-items:center;justify-content:center;font-size:20px;color:#fff;text-shadow:1px 1px 0 #000;transform:translate(-50%,-100%);box-shadow:0 0 0 2px #000}
 .pbp{position:absolute;left:50%;bottom:30px;transform:translateX(-50%);font-family:Arial;font-size:16px;color:#ddd;background:#0009;padding:4px 14px;border-left:4px solid var(--amber)}
+.kmeter{position:absolute;left:50%;bottom:120px;transform:translateX(-50%);width:280px;height:22px;border:3px solid #fff;background:#000a;box-shadow:0 0 0 2px #000}
+.kmeter .sweet{position:absolute;left:75%;width:25%;top:0;bottom:0;background:#2ecc4077}.kmeter .fill{position:absolute;left:0;top:0;bottom:0;width:0;background:linear-gradient(90deg,#ffdc00,#ff6a00)}
+.kmeter span{position:absolute;left:50%;top:-22px;transform:translateX(-50%);font-size:14px;letter-spacing:3px;color:#fff;text-shadow:1px 1px 0 #000;white-space:nowrap}
+/* house rules editor */
+.rules{display:flex;flex-direction:column;gap:4px;min-width:460px}
+.rules .row{display:flex;align-items:center;gap:8px;padding:4px 12px;border:2px solid #333;background:#161a24;font-size:22px;letter-spacing:2px;color:#ccd;transform:skewX(-8deg);cursor:pointer}
+.rules .row.sel{border-color:var(--amber);color:var(--amber);background:linear-gradient(#3a2a10,#1a1408)}.rules .row.changed .val{color:#2ecc40}.rules .row.act{justify-content:center;margin-top:4px}
+.rules .row .lbl{flex:1}.rules .row .val{min-width:130px;text-align:center;color:#fff}
+.rules .row button{font:inherit;font-size:16px;background:#0008;border:2px solid #555;color:#fff;width:34px;height:30px;cursor:pointer}.rules .row button:hover{border-color:var(--amber);color:var(--amber)}
+/* season */
+.season{display:flex;gap:48px;font-family:Arial,sans-serif;font-size:15px;color:#ccd;line-height:1.6;margin-bottom:14px;text-align:left}
+.season .hd{font-family:Impact,"Arial Narrow Bold",sans-serif;font-size:18px;letter-spacing:3px;color:var(--amber);margin-top:6px}.season .w b{color:#2ecc40}.season .l b{color:#ff4136}.season .me{color:var(--amber);font-weight:bold}
 /* touch controls (phones) */
 .touch{position:absolute;inset:0;pointer-events:none;z-index:5}
 .touch .stick{position:absolute;left:28px;bottom:40px;width:140px;height:140px;border-radius:50%;background:#0006;border:2px solid #fff5;pointer-events:auto;touch-action:none}
@@ -67,4 +79,4 @@ html,body{height:100%;background:#000;color:var(--chrome);font-family:Impact,"Ar
 @media (hover:hover) and (pointer:fine){.touch{display:none}}
 @media (hover:none) and (pointer:coarse){.fire{bottom:190px}.fire.p2{bottom:270px}}
 /* short viewports (phones in landscape) */
-@media (max-height:520px){.screen h1{font-size:min(10vw,56px);letter-spacing:4px}.screen h2{font-size:18px;margin:4px 0 10px}.menu{gap:6px;min-width:300px}.menu button,.btn{font-size:20px;padding:6px 18px;border-width:2px}.small{font-size:12px;margin-top:10px;max-width:90vw}.pick{padding-bottom:6px}.pick .box{min-width:0;padding:6px 10px}.pick h3{font-size:14px;letter-spacing:2px;margin-bottom:4px}.pick h3 small{font-size:11px}.plays{gap:4px}.plays button{font-size:13px;padding:3px 4px;gap:2px}.plays canvas{width:96px;height:54px}.pick .foot{font-size:11px;margin-top:4px}.scorebar .team{font-size:20px;padding:4px 10px;min-width:120px}.scorebar .team .pts{font-size:24px}.scorebar .mid .clock{font-size:22px}.downbar{top:58px;font-size:15px;padding:2px 10px}}
+@media (max-height:520px){.screen h1{font-size:min(10vw,56px);letter-spacing:4px}.screen h2{font-size:18px;margin:4px 0 10px}.menu{gap:6px;min-width:300px}.menu button,.btn{font-size:20px;padding:6px 18px;border-width:2px}.small{font-size:12px;margin-top:10px;max-width:90vw}.rules{min-width:360px;gap:2px}.rules .row{font-size:15px;padding:2px 8px}.rules .row button{height:24px;width:28px}.season{font-size:12px;gap:24px;line-height:1.35}.season .hd{font-size:14px}.pick{padding-bottom:6px}.pick .box{min-width:0;padding:6px 10px}.pick h3{font-size:14px;letter-spacing:2px;margin-bottom:4px}.pick h3 small{font-size:11px}.plays{gap:4px}.plays button{font-size:13px;padding:3px 4px;gap:2px}.plays canvas{width:96px;height:54px}.pick .foot{font-size:11px;margin-top:4px}.scorebar .team{font-size:20px;padding:4px 10px;min-width:120px}.scorebar .team .pts{font-size:24px}.scorebar .mid .clock{font-size:22px}.downbar{top:58px;font-size:15px;padding:2px 10px}}

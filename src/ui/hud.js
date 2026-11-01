@@ -16,7 +16,8 @@ export class Hud {
       <div class="downbar"></div>
       <div class="turbo p1"><i></i></div><div class="turbo p2"><i></i></div>
       <div class="fire p1" hidden>ON FIRE</div><div class="fire p2" hidden>ON FIRE</div>
-      <div class="icons"></div><div class="pbp"></div>`;
+      <div class="icons"></div><div class="pbp"></div>
+      <div class="kmeter" hidden><div class="sweet"></div><div class="fill"></div><span>KICK · PRESS A</span></div>`;
     this.q = s => this.el.querySelector(s);
     this.icons = this.q('.icons');
     this.menuState = null;
@@ -40,6 +41,7 @@ export class Hud {
       this.q('.fire.p' + (t + 1)).hidden = !g.fire[t];
     }
     this.q('.pbp').textContent = g.pbp;
+    const km = this.q('.kmeter'); km.hidden = !g.meter; if (g.meter) km.querySelector('.fill').style.width = (g.meter.val * 100) + '%';
     // banner lifetime
     if (this.banner) { this.bannerT -= dt; if (this.bannerT <= 0) { this.banner.remove(); this.banner = null; } }
     // receiver icons over eligible receivers while the QB holds the ball

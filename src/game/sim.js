@@ -1,5 +1,6 @@
 // The game state machine: phases, clock, downs, scoring. Live-ball physics lives in live.js.
 import { FIELD, RULES, PHASE, ROLES_OFF, ROLES_DEF, RECEIVERS, MOVE } from './constants.js';
+import { kickFactor, meterWave } from './constants.js';
 import { TEAMS, roster } from '../data/teams.js';
 import { makeEntity, setState, dist2, clamp } from './entity.js';
 import { OFFENSE_PAGES, DEFENSE_PAGE, FORMATIONS, DEF_ALIGN, routePoints } from './plays.js';
@@ -30,6 +31,7 @@ export class Game {
     this.ents = [[], []];
     this.phase = PHASE.KICKOFF; this.phaseT = 0;
     this.special = null;           // 'kickoff' | 'punt' | 'fg' | 'pat' | 'pat2' | null
+    this.meter = null;             // human kick meter {t,val,dur}
     this.offPlay = null; this.defPlay = null; this.offPick = null; this.defPick = null;
     this.playType = 'pass'; this.handedOff = false; this.caught = false; this.liveT = 0;
     this.deadT = 0; this.deadReason = ''; this.deadSpot = null; this.whistleX = 0;
@@ -77,7 +79,9 @@ export class Game {
 
   // ---------- kickoff ----------
   setupKickoff(kicking, fromSpot = this.rules.kickoffSpot) {
+    if (this.rules.kickoffs === false) { this.special = null; const rcv = 1 - kicking; this.newDrive(rcv, this.dir[rcv] > 0 ? 20 : FIELD.length - 20); return; }
     this.phase = PHASE.KICKOFF; this.phaseT = 0; this.special = 'kickoff';
+    this.meter = this.human[kicking] ? { t: 0, val: 0, dur: 1.2 } : null;
     this.poss = 1 - kicking;                      // receiving team is the offense
     this.kickoffTeam = kicking;
     this.buildEntities();
@@ -96,12 +100,14 @@ export class Game {
     this.liveT = 0; this.handedOff = true; this.caught = false; this.playType = 'kick';
     this.say(`${this.teams[kicking].city} kicks off.`);
   }
-  doKick() {
+  doKick(pf = null) {
     const k = this.ents[this.kickoffTeam][6];
     const kd = this.dir[this.kickoffTeam];
-    const power = MOVE.kickPower * (0.9 + Math.random() * 0.2);
+    const f = kickFactor(pf);
+    const power = MOVE.kickPower * f.power;
     const ret = this.ents[this.poss][1];
-    this.throwBall(k, ret.x + kd * (Math.random() * 10 - 2), ret.y + (Math.random() * 14 - 7), 'kick', 2.3, power);
+    this.meter = null;
+    this.throwBall(k, ret.x + kd * (Math.random() * 10 - 2), ret.y + (Math.random() * 14 - 7) * f.spread, 'kick', 2.3, power);
     this.ball.target = 1;
     this.phase = PHASE.LIVE; this.liveT = 0; this.clockStopped = true;
     this.emit('sound', { name: 'kick' });
@@ -177,6 +183,7 @@ export class Game {
       def.forEach((e, i) => { e.task = i === 6 ? 'return' : 'rush'; });
       const ret = def[6]; [ret.x, ret.y] = this.toWorld(this.poss, this.special === 'punt' ? 40 : 30, 0);
       this.kickT = this.special === 'punt' ? 1.3 : 1.1;
+      this.meter = this.human[this.poss] ? { t: 0, val: 0, dur: 1.1 } : null;
     } else {
       off.forEach((e, i) => {
         const start = [(e.x - this.los) * dir, (e.y - FIELD.mid) * dir];
@@ -244,6 +251,7 @@ export class Game {
 
   // ---------- dead ball & downs ----------
   endPlay(reason, x, y) {
+    this.meter = null;
     if (this.phase !== PHASE.LIVE) return;
     const prev = this.poss;
     this.phase = PHASE.DEAD; this.deadT = 0; this.deadReason = reason;
@@ -385,7 +393,12 @@ export class Game {
     if (!this.clockStopped && (P === PHASE.LIVE || P === PHASE.DEAD || P === PHASE.PLAYCALL || P === PHASE.PRESNAP)) {
       this.clock = Math.max(0, this.clock - dt);
     }
-    if (P === PHASE.KICKOFF) { if (this.phaseT > 1.4) this.doKick(); return; }
+    if (P === PHASE.KICKOFF) {
+      const m = this.meter;
+      if (m) { m.t += dt; m.val = meterWave(m.t / m.dur); if (this.inputs[this.kickoffTeam].a && m.t > 0.25) this.doKick(m.val); else if (m.t > 3 * m.dur) this.doKick(0.6 + Math.random() * 0.35); }
+      else if (this.phaseT > 1.4) this.doKick();
+      return;
+    }
     if (P === PHASE.PLAYCALL) {
       this.aiPickT -= dt;
       for (let t = 0; t < 2; t++) {

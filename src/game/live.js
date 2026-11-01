@@ -1,5 +1,6 @@
 // Live-ball tick: input -> intent -> movement, ball flight, catches, tackles, whistle.
 import { FIELD, MOVE, RECEIVERS, PHASE } from './constants.js';
+import { kickFactor, meterWave } from './constants.js';
 import { dist, dist2, nearest, clamp, maxSpeed, steer, integrate, setState } from './entity.js';
 import { offenseBrain, defenseBrain } from './ai.js';
 
@@ -59,8 +60,9 @@ export function liveTick(g, dt, presnap) {
     if (c) { b.x = c.x; b.y = c.y; b.z = 1 + c.z; }
     // kicker: punt / field goal after the hold
     if (!dead && g.special && g.special !== 'kickoff' && g.special !== 'pat2' && c && c.task === 'kicker') {
-      g.kickT -= dt;
-      if (g.kickT <= 0) doKick(g, c);
+      const m = g.meter;
+      if (m) { m.t += dt; m.val = meterWave(m.t / m.dur); if (g.inputs[g.poss].a && m.t > 0.25) doKick(g, c, m.val); else if (m.t > 3 * m.dur) doKick(g, c, 0.6 + Math.random() * 0.35); }
+      else { g.kickT -= dt; if (g.kickT <= 0) doKick(g, c); }
     }
     // run-play handoff
     if (!dead && c && c.role === 'QB' && g.playType === 'run' && !g.handedOff) {
@@ -89,7 +91,8 @@ function humanIntent(g, e, inp, presnap) {
   }
   if (offense) {
     if (e.hasBall) {
-      if (e.role === 'QB' && !g.handedOff && g.playType === 'pass') {
+      if (e.task === 'kicker') { /* A belongs to the kick meter */ }
+      else if (e.role === 'QB' && !g.handedOff && g.playType === 'pass') {
         if (inp.pass >= 0) { m.action = 'pass'; m.target = RECEIVERS[inp.pass]; }
         else if (inp.a) m.action = 'dive';
         else if (inp.b) m.action = 'spin';
@@ -184,11 +187,13 @@ function lateral(g, c) {
   g.say('Lateral!');
 }
 
-function doKick(g, k) {
+function doKick(g, k, pf = null) {
   const dir = g.dir[g.poss];
+  const f = kickFactor(pf);
+  g.meter = null;
   if (g.special === 'punt') {
-    const power = MOVE.puntPower * (0.85 + Math.random() * 0.3);
-    const tx = clamp(k.x + dir * power, FIELD.minX + 2, FIELD.maxX - 2), ty = clamp(k.y + (Math.random() * 16 - 8), 3, FIELD.width - 3);
+    const power = MOVE.puntPower * f.power;
+    const tx = clamp(k.x + dir * power, FIELD.minX + 2, FIELD.maxX - 2), ty = clamp(k.y + (Math.random() * 16 - 8) * f.spread, 3, FIELD.width - 3);
     g.throwBall(k, tx, ty, 'punt', 2.2, power / 1.1);
     g.ball.target = 6; g.punted = true;
     g.say(`${g.teams[g.poss].abbr} punts.`); g.emit('sound', { name: 'kick' });
@@ -197,10 +202,12 @@ function doKick(g, k) {
   // field goal / PAT: fly at the uprights, decide by distance (+ a little luck)
   const goal = g.goalLineFor(g.poss);
   const distYds = Math.abs(goal - k.x) + 10;
-  const p = g.special === 'pat' ? 0.96 : clamp(1.15 - distYds / 62, 0.05, 0.97);
-  const good = Math.random() < p;
+  let p = g.special === 'pat' ? 0.96 : clamp(1.15 - distYds / 62, 0.05, 0.97);
+  if (pf !== null) p = pf >= 0.75 ? Math.min(0.99, p + 0.08) : p * (pf / 0.75) * 0.8;   // sweet spot helps, a weak press hurts
+  const reach = pf === null ? 22 : 22 * (0.3 + 0.7 * pf) - Math.max(0, distYds - 45) * (1 - pf);
+  const good = Math.random() < p && reach > 2;
   const ty = FIELD.mid + (good ? (Math.random() * 6 - 3) : (Math.random() < 0.5 ? -13 : 13));
-  g.throwBall(k, goal + dir * 22, ty, 'kick', 2.1, 52);
+  g.throwBall(k, goal + dir * reach, ty, 'kick', 2.1, 52 * (pf === null ? 1 : 0.7 + 0.3 * pf));
   g.ball.target = -1; g.ball.fgGood = good;
   g.emit('sound', { name: 'kick' });
 }

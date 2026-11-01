@@ -9,6 +9,7 @@ import { Input } from './input.js';
 import { Touch } from './ui/touch.js';
 import { assets } from './assets/index.js';
 import { Sound } from './audio.js';
+import { Season } from './game/season.js';
 
 const cfg = window.GAME || { code: 'KODIAK', variant: 'classic', hub: '../../hub.html' };
 
@@ -17,7 +18,35 @@ export const VARIANTS = {
   classic: RULES,
   house: { ...RULES, name: 'HOUSE RULES', firstDownYards: 25, onFireStreak: 2, playClock: 12 },
 };
-const rules = VARIANTS[cfg.variant] || RULES;
+// FIREFLY keeps your own tweaks on top of the house set, saved in this browser (see rulesEditor).
+const RULES_KEY = `${cfg.code}.rules`;
+const getKnob = (r, k) => k.startsWith('points.') ? r.points[k.slice(7)] : r[k];
+function loadRules() {
+  const base = VARIANTS[cfg.variant] || RULES;
+  if (cfg.variant !== 'house') return base;
+  let o = {}; try { o = JSON.parse(localStorage.getItem(RULES_KEY) || '{}') || {}; } catch { o = {}; }
+  const r = { ...base, points: { ...base.points } };
+  for (const [k, v] of Object.entries(o)) { if (k.startsWith('points.')) r.points[k.slice(7)] = v; else if (k in r) r[k] = v; }
+  return r;
+}
+let rules = loadRules();
+const KNOBS = [
+  { k: 'firstDownYards', label: 'FIRST DOWN', min: 5, max: 60, step: 5, fmt: v => v + ' YDS' },
+  { k: 'downs', label: 'DOWNS', min: 1, max: 6, step: 1 },
+  { k: 'quarterSeconds', label: 'QUARTER', min: 30, max: 600, step: 30, fmt: v => `${Math.floor(v / 60)}:${String(v % 60).padStart(2, '0')}` },
+  { k: 'playClock', label: 'PLAY CLOCK', min: 5, max: 30, step: 1, fmt: v => v + ' S' },
+  { k: 'onFireStreak', label: 'FIRE AFTER', min: 1, max: 6, step: 1, fmt: v => v + ' SCORES' },
+  { k: 'onFireBoost', label: 'FIRE BOOST', min: 1, max: 1.6, step: 0.05, fmt: v => 'x' + v.toFixed(2) },
+  { k: 'turboSpeed', label: 'TURBO SPEED', min: 1, max: 1.8, step: 0.05, fmt: v => 'x' + v.toFixed(2) },
+  { k: 'turboDrain', label: 'TURBO DRAIN', min: 0, max: 90, step: 5, fmt: v => v === 0 ? 'NEVER' : v + ' / S' },
+  { k: 'speedScale', label: 'GAME SPEED', min: 0.6, max: 1.6, step: 0.1, fmt: v => Math.round(v * 100) + '%' },
+  { k: 'lateHits', label: 'LATE HITS', bool: true },
+  { k: 'kickoffs', label: 'KICKOFFS', bool: true },
+  { k: 'points.td', label: 'TOUCHDOWN', min: 1, max: 12, step: 1, fmt: v => v + ' PTS' },
+  { k: 'points.fg', label: 'FIELD GOAL', min: 0, max: 7, step: 1, fmt: v => v + ' PTS' },
+];
+const season = new Season(cfg.code, TEAMS);
+let seasonGame = null;               // the season fixture the running game counts for
 
 const overlay = document.getElementById('overlay');
 const hudEl = document.getElementById('hud');
@@ -58,13 +87,15 @@ function title() {
   s.appendChild(menu([
     { label: '1 PLAYER', run: () => teamSelect(1) },
     { label: '2 PLAYER', run: () => teamSelect(2) },
-    { label: 'WATCH CPU DEMO', run: () => startGame([5, 9], [false, false]) },
+    { label: 'WATCH CPU DEMO', run: () => { seasonGame = null; startGame([5, 9], [false, false]); } },
+    { label: season.active ? 'CONTINUE SEASON' : 'SEASON', run: () => seasonScreen() },
+    ...(cfg.variant === 'house' ? [{ label: 'HOUSE RULES', run: () => rulesEditor() }] : []),
     { label: assets.ready ? 'DISC DATA LOADED ✓' : (assets.canResume ? 'RESUME DISC DATA' : 'LOAD DISC DATA'), run: () => (assets.canResume && !assets.ready ? resumeDisc() : loadDisc()) },
     { label: 'CONTROLS', run: () => controls() },
     { label: 'BACK OUT', run: () => { location.href = cfg.hub; } },
   ]));
   const p = document.createElement('p'); p.className = 'small';
-  p.innerHTML = `${esc(assetStatus)}<br>Rule set: <code>${esc(rules.name)}</code> · ${rules.playersPerSide} a side · ${rules.firstDownYards} yards for a first down · no flags`;
+  p.innerHTML = `${esc(assetStatus)}<br>Rule set: <code>${esc(rules.name)}</code> · ${rules.playersPerSide} a side · ${rules.firstDownYards} yards in ${rules.downs} downs · ${rules.kickoffs ? 'kickoffs' : 'no kickoffs'} · ${rules.lateHits ? 'late hits' : 'no late hits'} · no flags`;
   s.appendChild(p);
 }
 
@@ -102,17 +133,82 @@ async function loadDisc() {
   };
 }
 
+// ---------- house rules (FIREFLY) ----------
+function rulesEditor() {
+  let o = {}; try { o = JSON.parse(localStorage.getItem(RULES_KEY) || '{}') || {}; } catch { o = {}; }
+  const base = VARIANTS.house;
+  const s = screen(`<h2>HOUSE RULES</h2><p class="small">Left / right changes a rule. Saved in this browser; this door always plays with them.</p>`);
+  const list = document.createElement('div'); list.className = 'rules'; s.appendChild(list);
+  const rows = KNOBS.map(kn => { const d = document.createElement('div'); d.className = 'row'; d.innerHTML = `<span class="lbl">${esc(kn.label)}</span><button class="dec">&#9664;</button><span class="val"></span><button class="inc">&#9654;</button>`; list.appendChild(d); return d; });
+  const actions = [['RESET TO DEFAULTS', () => { o = {}; save(); }], ['DONE', () => { cleanup(); title(); }]];
+  const arows = actions.map(([l]) => { const d = document.createElement('div'); d.className = 'row act'; d.innerHTML = `<span class="lbl">${esc(l)}</span>`; list.appendChild(d); return d; });
+  let sel = 0; const n = KNOBS.length + actions.length;
+  const cur = kn => kn.k in o ? o[kn.k] : getKnob(base, kn.k);
+  const draw = () => {
+    KNOBS.forEach((kn, i) => { const v = cur(kn); rows[i].querySelector('.val').textContent = kn.bool ? (v ? 'ON' : 'OFF') : (kn.fmt ? kn.fmt(v) : String(v)); rows[i].classList.toggle('sel', i === sel); rows[i].classList.toggle('changed', kn.k in o); });
+    arows.forEach((d, i) => d.classList.toggle('sel', KNOBS.length + i === sel));
+  };
+  const save = () => { try { localStorage.setItem(RULES_KEY, JSON.stringify(o)); } catch { /* keep for this visit */ } rules = loadRules(); draw(); };
+  const adjust = (i, d) => {
+    const kn = KNOBS[i]; if (!kn) return; let v = cur(kn);
+    if (kn.bool) v = !v; else v = Math.round(Math.min(kn.max, Math.max(kn.min, v + d * kn.step)) * 100) / 100;
+    if (v === getKnob(base, kn.k)) delete o[kn.k]; else o[kn.k] = v;
+    save();
+  };
+  const go = () => { if (sel < KNOBS.length) adjust(sel, 1); else actions[sel - KNOBS.length][1](); };
+  rows.forEach((d, i) => { d.querySelector('.dec').onclick = () => { sel = i; adjust(i, -1); }; d.querySelector('.inc').onclick = () => { sel = i; adjust(i, 1); }; d.onmouseenter = () => { sel = i; draw(); }; });
+  arows.forEach((d, i) => { d.onclick = () => { sel = KNOBS.length + i; go(); }; d.onmouseenter = () => { sel = KNOBS.length + i; draw(); }; });
+  const key = e => {
+    if (e.code === 'ArrowUp' || e.code === 'KeyW') sel = (sel + n - 1) % n; else if (e.code === 'ArrowDown' || e.code === 'KeyS') sel = (sel + 1) % n;
+    else if (e.code === 'ArrowLeft' || e.code === 'KeyA') adjust(sel, -1); else if (e.code === 'ArrowRight' || e.code === 'KeyD') adjust(sel, 1);
+    else if (e.code === 'Enter' || e.code === 'Space' || e.code === 'KeyJ') go(); else if (e.code === 'Escape') { cleanup(); title(); return; } else return;
+    e.preventDefault(); if (s.isConnected) draw();
+  };
+  let pv = false, ph = false;
+  const pad = () => {
+    const r = input.poll(0, { keyboard: false }); touch.apply(r);
+    if (Math.abs(r.my) > 0.5 && !pv) { sel = (sel + (r.my > 0 ? 1 : n - 1)) % n; draw(); }
+    if (Math.abs(r.mx) > 0.5 && !ph) adjust(sel, r.mx > 0 ? 1 : -1);
+    pv = Math.abs(r.my) > 0.5; ph = Math.abs(r.mx) > 0.5;
+    if (r.f[0]) go(); else if (r.f[1] || r.start) { cleanup(); title(); }
+    if (s.isConnected) s._raf = requestAnimationFrame(pad);
+  };
+  const cleanup = () => { window.removeEventListener('keydown', key); cancelAnimationFrame(s._raf); };
+  window.addEventListener('keydown', key); s._raf = requestAnimationFrame(pad); draw();
+}
+
+// ---------- season ----------
+function seasonScreen() {
+  if (!season.active) { teamSelect(1, id => { season.start(id); seasonScreen(); }); return; }
+  const st = season.s, me = TEAMS[st.team], rec = season.recordOf(st.team), nx = season.next();
+  const ab = id => esc(TEAMS[id].abbr);
+  const s = screen(`<h2>SEASON · ${ab(st.team)} ${rec.w}-${rec.l}</h2>`);
+  const cols = document.createElement('div'); cols.className = 'season';
+  const sched = st.games.map((g, i) => `<div class="${g.result ? (g.result[0] > g.result[1] ? 'w' : 'l') : ''}">WK ${i + 1} ${g.home ? 'vs' : 'at'} ${ab(g.opp)} ${g.result ? `<b>${g.result[0] > g.result[1] ? 'W' : 'L'} ${g.result[0]}-${g.result[1]}</b>` : ''}</div>`).join('');
+  const m = x => x ? `<div>${ab(x[0])} vs ${ab(x[1])} ${x[2] != null ? '<b>' + ab(x[2]) + '</b>' : ''}</div>` : '';
+  const po = st.playoffs ? `<div class="hd">PLAYOFFS</div>${m(st.playoffs.semis[0])}${m(st.playoffs.semis[1])}${st.playoffs.final ? '<div class="hd">FINAL</div>' + m(st.playoffs.final) : ''}` : '';
+  const stand = season.standings().slice(0, 10).map((r, i) => `<div class="${r.id === st.team ? 'me' : ''}">${i + 1}. ${ab(r.id)} ${r.w}-${r.l}</div>`).join('');
+  cols.innerHTML = `<div><div class="hd">SCHEDULE</div>${sched}${po}</div><div><div class="hd">STANDINGS</div>${stand}</div>`;
+  s.appendChild(cols);
+  const items = [];
+  if (nx) items.push({ label: `PLAY ${nx.label}: ${nx.ids.map(ab).join(' VS ')}`, run: () => { seasonGame = nx; startGame(nx.ids, nx.human); } });
+  else items.push({ label: st.champion === st.team ? 'YOU ARE THE CHAMPS' : 'SEASON OVER' + (st.champion != null ? ' · ' + TEAMS[st.champion].abbr + ' WON IT' : ''), disabled: true });
+  items.push({ label: 'NEW SEASON', run: () => { season.clear(); seasonScreen(); } }, { label: 'TITLE', run: title });
+  s.appendChild(menu(items));
+}
+
 function controls() {
   const s = screen(`<h2>CONTROLS</h2><p class="small" style="text-align:left;line-height:1.9">
     <b>Move</b> arrows / WASD / left stick &nbsp;·&nbsp; <b>Turbo</b> Shift / L / RT<br>
     <b>A</b> Space or J (snap · dive · jump · tackle · bring up pass icons, then A/B/X/Y or 1-4 throws)<br>
     <b>B</b> K or X (spin · stiff-arm · dive tackle) &nbsp;·&nbsp; <b>Lateral</b> I &nbsp;·&nbsp; <b>Switch defender</b> Q / LB<br>
     <b>Play call</b> arrows + Space, Shift flips the page, P punt, F field goal &nbsp;·&nbsp; <b>Pause</b> Esc / Start<br>
+    <b>Kicks</b> A snaps, then A again to stop the meter: the green zone is full power and true aim<br>
     Player 2 uses a second gamepad.</p>`);
   const back = document.createElement('button'); back.className = 'btn'; back.textContent = 'BACK'; back.onclick = title; s.appendChild(back);
 }
 
-function teamSelect(players) {
+function teamSelect(players, single = null) {
   const picks = [];
   const s = screen(`<h2>${players === 1 ? 'PICK YOUR TEAM' : 'PLAYER 1 · PICK YOUR TEAM'}</h2>`);
   const grid = document.createElement('div'); grid.className = 'teams'; s.appendChild(grid);
@@ -123,13 +219,14 @@ function teamSelect(players) {
   const cleanup = () => { window.removeEventListener('keydown', key); cancelAnimationFrame(s._raf); };
   const choose = () => {
     picks.push(sel);
+    if (single) { cleanup(); single(sel); return; }
     if (picks.length === 1) {
       s.querySelector('h2').textContent = players === 1 ? 'PICK THE CPU TEAM' : 'PLAYER 2 · PICK YOUR TEAM';
       sel = (sel + 7) % TEAMS.length; draw(); return;
     }
     cleanup();
     if (picks[1] === picks[0]) picks[1] = (picks[0] + 1) % TEAMS.length;
-    startGame(picks, [true, players === 2]);
+    seasonGame = null; startGame(picks, [true, players === 2]);
   };
   let padH = false, padV = false;
   const pad = () => { const r = input.poll(picks.length === 1 && players === 2 ? 1 : 0, { keyboard: false }); const n = TEAMS.length; if (Math.abs(r.mx) > 0.5 && !padH) { sel = (sel + (r.mx > 0 ? 1 : n - 1)) % n; draw(); } if (Math.abs(r.my) > 0.5 && !padV) { sel = (sel + (r.my > 0 ? 8 : n - 8)) % n; draw(); } padH = Math.abs(r.mx) > 0.5; padV = Math.abs(r.my) > 0.5; if (r.f[0]) choose(); s._raf = requestAnimationFrame(pad); };
@@ -263,6 +360,11 @@ function finalScreen() {
   const s = screen(`<h2>FINAL</h2><h1 style="font-size:min(10vw,80px)">${esc(game.teams[0].abbr)} ${game.score[0]} <span>·</span> ${esc(game.teams[1].abbr)} ${game.score[1]}</h1><h2>${w === null ? 'TIE' : esc(game.teams[w].city.toUpperCase()) + ' WINS'}</h2>`);
   s.style.background = '#000a';
   const ids = game.teams.map(t => t.id), hum = game.human.slice();
+  if (seasonGame) {
+    season.record(seasonGame.ids, game.score.slice()); seasonGame = null;
+    s.appendChild(menu([{ label: 'CONTINUE SEASON', run: () => seasonScreen() }, { label: 'TITLE', run: () => title() }]));
+    return;
+  }
   s.appendChild(menu([
     { label: 'REMATCH', run: () => startGame(ids, hum) },
     { label: 'TITLE', run: () => title() },

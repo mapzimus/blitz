@@ -31,6 +31,8 @@ export const RULES = {
   patSpot: 2,              // 2-yard line
   clockStopsOn: ['incomplete', 'score', 'turnover', 'outOfBounds'],
   lateHitWindow: 2.0,      // seconds after whistle you may still pile on
+  speedScale: 1,           // everyone's top speed (house rules knob)
+  kickoffs: true,          // false: drives start at the 20 after every score
 };
 
 // Movement tuning (arcade fast). Base speeds in yd/s.
@@ -44,6 +46,13 @@ export const MOVE = {
   catchRadius: 1.6, pickRadius: 1.25,
   kickPower: 60, puntPower: 52,
 };
+
+// Kick meter: pf is the locked meter value 0..1 (null = CPU / no meter). Sweet spot is the top quarter.
+export function kickFactor(pf) {
+  if (pf === null || pf === undefined) return { power: 0.9 + Math.random() * 0.2, spread: 1 };
+  return { power: 0.55 + 0.5 * pf, spread: pf < 0.6 ? 2.5 : 1 };
+}
+export const meterWave = t => { const x = t % 2; return x < 1 ? x : 2 - x; };
 
 export const TICK = 1 / 60;       // fixed sim step
 export const NET_RATE = 20;       // snapshots per second host -> client

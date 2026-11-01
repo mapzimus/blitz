@@ -28,7 +28,7 @@ export function nearest(list, x, y, pred) {
 }
 
 export function maxSpeed(e, rules, fire) {
-  let s = MOVE.speed[e.role] * e.spd;
+  let s = MOVE.speed[e.role] * e.spd * (rules.speedScale || 1);
   if (e.turboOn && e.turbo > 0) s *= rules.turboSpeed;
   if (fire) s *= rules.onFireBoost;
   if (e.state === 'dive') s = MOVE.diveSpeed;
