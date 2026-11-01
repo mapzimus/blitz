@@ -6,6 +6,18 @@
       "runtimeExecutable": "C:/Users/mhowe/AppData/Local/Python/bin/python.exe",
       "runtimeArgs": ["-m", "http.server", "8765"],
       "port": 8765
+    },
+    {
+      "name": "game",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["tools/serve.mjs", "8778"],
+      "port": 8778
+    },
+    {
+      "name": "pack",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["tools/serve.mjs", "8779", "C:/Users/mhowe/Downloads/NFL Blitz 2002 (USA)/extract/DATA"],
+      "port": 8779
     }
   ]
 }
