@@ -11,7 +11,7 @@ const Q = 2 / 65535;
 
 export function parseAnim(bytes) {
   const b = Bin.of(bytes);
-  if (b.str(5) !== 'ANR10') throw new Error('not an ANR10 animation');
+  if (b.str(4) !== 'ANR1') throw new Error('not an ANR1 animation');
   b.seek(0x30);
   b.u32();
   const total = b.u32(), numKeys = b.u32(), numBones = b.u32();

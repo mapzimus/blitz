@@ -19,6 +19,8 @@ import { texPath } from '../../src/sundial/pak.js';
 const [disc, out] = process.argv.slice(2);
 if (!disc || !out) { console.error('usage: export-all.mjs <disc> <out>'); process.exit(1); }
 const NO_MUSIC = process.argv.includes('--no-music');
+const MUSIC_ONLY = process.argv.includes('--music-only');
+const FFMPEG = process.argv.includes('--ffmpeg') ? process.argv[process.argv.indexOf('--ffmpeg') + 1] : 'ffmpeg';
 const ONLY = process.argv.includes('--only') ? process.argv[process.argv.indexOf('--only') + 1] : null;
 const load = p => { const b = readFileSync(p); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength); };
 const ensure = d => { mkdirSync(d, { recursive: true }); return d; };
@@ -154,7 +156,12 @@ function exportPak(path, outDir) {
       } else if (p.startsWith('pad/') && p.endsWith('.raw')) {
         writeFileSync(join(ensure(join(dir, 'pads')), safe.replace(/\.raw$/, '.json')), JSON.stringify(parsePad(bytes))); nPad++;
       } else if (p.startsWith('anim/') && p.endsWith('.raw')) {
-        const a = parseAnim(bytes); writeFileSync(join(ensure(join(dir, 'anims')), safe.replace(/\.raw$/, '.json')), JSON.stringify({ total: a.total, keys: Array.from(a.keys), bones: a.bones })); nAnim++;
+        if (String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]) === 'ANR1') {
+          const a = parseAnim(bytes); writeFileSync(join(ensure(join(dir, 'anims')), safe.replace(/\.raw$/, '.json')), JSON.stringify({ total: a.total, keys: Array.from(a.keys), bones: a.bones })); nAnim++;
+        } else {
+          // cutscene props and characters are plain models filed under anim/
+          const m = parseModel(bytes); buildModelGlb(pak, m, p, texCache).write(join(ensure(join(dir, 'models')), safe.replace(/\.raw$/, '.glb'))); nMod++;
+        }
       } else if (p.endsWith('.vag')) {
         const { rate, samples } = decodeVag(bytes); writeFileSync(join(ensure(join(dir, 'sounds')), safe.replace(/\.vag$/, '.wav')), wav(samples, rate)); nSnd++;
       } else if (p.endsWith('.str')) {
@@ -175,7 +182,7 @@ function exportPak(path, outDir) {
 function exportMusic(outDir) {
   const dir = ensure(join(outDir, 'music'));
   const F = [[0, 0], [60, 0], [115, -52], [98, -55], [122, -60]];
-  const ff = spawnSync('ffmpeg', ['-version']); if (ff.status !== 0) { log('ffmpeg not found; skipping music'); return; }
+  const ff = spawnSync(FFMPEG, ['-version']); if (ff.status !== 0) { log('ffmpeg not found; skipping music'); return; }
   for (const sub of ['MUSIC0', 'MUSIC1', 'MUSIC2']) {
     const d = join(disc, 'MUSIC', sub); if (!existsSync(d)) continue;
     for (const f of readdirSync(d).filter(f => /\.mib$/i.test(f)).sort()) {
@@ -194,7 +201,7 @@ function exportMusic(outDir) {
         for (let ch = 0; ch < 2; ch++) { const o = ch === 0 ? l : r; const s = st[ch]; let n = 0; for (let b = 0; b < IL / 16; b++) { const p = pos + ch * IL + b * 16; const shift = bytes[p] & 15, fl = Math.min(4, bytes[p] >> 4); for (let i = 0; i < 28; i++) { const by = bytes[p + 2 + (i >> 1)]; let nib = (i & 1) ? (by >> 4) : (by & 15); if (nib > 7) nib -= 16; let v = (nib << 12) >> shift; v += (s.s1 * F[fl][0] + s.s2 * F[fl][1] + 32) >> 6; v = Math.max(-32768, Math.min(32767, v)); s.s2 = s.s1; s.s1 = v; o[n++] = v; } } }
         for (let i = 0; i < chunkFrames; i++) { pcm.writeInt16LE(l[i], fi * 4); pcm.writeInt16LE(r[i], fi * 4 + 2); fi++; }
       }
-      const res = spawnSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 's16le', '-ar', '44100', '-ac', '2', '-i', 'pipe:0', '-c:a', 'libopus', '-b:a', '128k', outFile], { input: pcm.subarray(0, fi * 4), maxBuffer: 1 << 30 });
+      const res = spawnSync(FFMPEG, ['-y', '-loglevel', 'error', '-f', 's16le', '-ar', '44100', '-ac', '2', '-i', 'pipe:0', '-c:a', 'libopus', '-b:a', '128k', outFile], { input: pcm.subarray(0, fi * 4), maxBuffer: 1 << 30 });
       log(`music ${f} stride ${IL.toString(16)} -> ${basename(outFile)} ${res.status === 0 ? 'ok' : 'FAILED ' + res.stderr}`);
     }
   }
@@ -204,6 +211,6 @@ function exportMusic(outDir) {
 const pakDir = join(disc, 'PAK');
 const paks = [];
 for (const f of readdirSync(pakDir)) { const p = join(pakDir, f); if (statSync(p).isDirectory()) { for (const g of readdirSync(p)) if (/\.pak$/i.test(g)) paks.push(join(p, g)); } else if (/\.pak$/i.test(f)) paks.push(p); }
-for (const p of paks.sort()) { if (ONLY && !basename(p).toLowerCase().includes(ONLY.toLowerCase())) continue; exportPak(p, out); }
-if (!NO_MUSIC && !ONLY) exportMusic(out);
+if (!MUSIC_ONLY) for (const p of paks.sort()) { if (ONLY && !basename(p).toLowerCase().includes(ONLY.toLowerCase())) continue; exportPak(p, out); }
+if (!NO_MUSIC && (MUSIC_ONLY || !ONLY)) exportMusic(out);
 log('done');
