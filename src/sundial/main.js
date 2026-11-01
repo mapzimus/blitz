@@ -180,7 +180,9 @@ function step(dt) {
   } else {
     fwd.set(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
     right.set(fwd.z, 0, -fwd.x);
-    const speed = keys.has('ShiftLeft') ? 3.2 : 5.5;
+    const crouch = keys.has('ControlLeft') || keys.has('KeyC');
+    player.eye += ((crouch ? 0.9 : 1.5) - player.eye) * Math.min(1, dt * 12);
+    const speed = crouch ? 2.6 : keys.has('ShiftLeft') ? 3.2 : 5.5;
     tmp.set(0, 0, 0);
     if (keys.has('KeyW')) tmp.add(fwd);
     if (keys.has('KeyS')) tmp.sub(fwd);
@@ -222,6 +224,12 @@ function step(dt) {
   camera.position.copy(player.pos); camera.position.y += player.eye;
   camera.rotation.set(0, 0, 0, 'YXZ');
   camera.rotation.y = player.yaw; camera.rotation.x = player.pitch;
+  if (player.dead) {
+    // Death camera: sink to the floor and roll over.
+    const t = Math.min(1, (1.5 - player.respawnIn) / 1.2);
+    camera.position.y = player.pos.y + 1.5 - 1.2 * t;
+    camera.rotation.z = 0.9 * t; camera.rotation.x = player.pitch * (1 - t) + 0.3 * t;
+  }
   const wdef = curWeapon() && curWeapon().def;
   const fovWant = player.zoom && wdef && wdef.zoom ? 80 / wdef.zoom : 80;
   if (Math.abs(camera.fov - fovWant) > 0.1) { camera.fov += (fovWant - camera.fov) * 0.3; camera.updateProjectionMatrix(); }
