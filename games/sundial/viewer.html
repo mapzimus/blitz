@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SUNDIAL VIEWER</title>
+<meta name="robots" content="noindex">
+<link rel="stylesheet" href="sundial.css">
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+<style>
+  #bar{position:fixed;left:0;right:0;top:0;display:flex;gap:10px;align-items:center;padding:8px 12px;background:#000c;font-family:Arial,sans-serif;font-size:13px;color:#cbd;flex-wrap:wrap}
+  #bar select,#bar input[type=range]{font:13px Arial,sans-serif;background:#1a1e2a;color:#fff;border:1px solid #444;padding:3px 6px}
+  #bar input[type=range]{width:220px}
+  #bar label{display:flex;gap:6px;align-items:center}
+  #info{position:fixed;left:12px;bottom:10px;font-family:Arial,sans-serif;font-size:12px;color:#9aa;white-space:pre}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="bar">
+  <label>Model <select id="model"></select></label>
+  <label>Clip <select id="clip"></select></label>
+  <label><input type="checkbox" id="play" checked> play</label>
+  <label>Frame <input type="range" id="frame" min="0" max="100" value="0"> <span id="fval">0</span></label>
+  <label><input type="checkbox" id="bones"> bones</label>
+  <label><input type="checkbox" id="wire"> wire</label>
+  <span id="status" class="fine">Loading archives…</span>
+</div>
+<div id="info"></div>
+<script type="module" src="../../src/sundial/viewer.js"></script>
+</body>
+</html>

@@ -1,13 +1,18 @@
-// Arena bots: characters from the arena's own pack walking the nav graph and shooting on sight.
+// Arena bots: characters from the arena's own pack walking the nav graph and shooting on sight,
+// animated with the game's own clips through the 19-bone humanoid rig.
 import * as THREE from 'three';
 import { parseModel } from './model.js';
 import { modelToGroup } from './build.js';
+import { Rig } from './skeleton.js';
 
-const UP = new THREE.Vector3(0, 1, 0);
+const DEATH = ['chestshot1_m0', 'chestshot2_m0', 'heartshot_m0', 'shothead_m0', 'shothead2_m0', 'fall_m0', 'stomachhit_m0'];
+const HIT = ['hit_1_m0', 'hit_2_m0', 'hit_3_m0', 'hit_4_m0', 'hit_5_m0', 'Hit_react1_m0', 'Hit_react2_m0'];
+const pick = a => a[Math.floor(Math.random() * a.length)];
 
 export class Bots {
-  constructor({ pak, texSrc, pad, scene, solid, onPlayerHit, onBotKilled }) {
+  constructor({ pak, texSrc, pad, scene, solid, anims, bind, onPlayerHit, onBotKilled }) {
     this.scene = scene; this.solid = solid; this.onPlayerHit = onPlayerHit; this.onBotKilled = onBotKilled;
+    this.anims = anims; this.bind = bind;
     this.ray = new THREE.Raycaster();
     this.list = [];
     this.nodes = new Map();
@@ -24,6 +29,8 @@ export class Bots {
     this.texSrc = texSrc;
   }
 
+  clip(name) { return this.anims && this.anims.get(name); }
+
   spawn(count) {
     if (!this.models.length || !this.nodeList.length) return;
     for (let i = 0; i < count; i++) {
@@ -31,11 +38,20 @@ export class Bots {
       const g = modelToGroup(m, this.texSrc, { lit: true });
       g.scale.setScalar(m.scale || 1);
       g.userData.bot = true;
-      const b = { group: g, hp: 100, node: null, target: null, cool: 1 + Math.random(), dead: 0, speed: 2.6 + Math.random() * 0.8, hitFlash: 0 };
+      const b = { group: g, hp: 100, node: null, target: null, cool: 1 + Math.random(), dead: 0, speed: 2.6 + Math.random() * 0.8, hitFlash: 0, react: 0, rig: null, state: '' };
+      if (this.bind) { b.rig = new Rig(g, m, this.bind); }
       this.scene.add(g);
       this.list.push(b);
       this.respawn(b);
     }
+  }
+
+  setAnim(b, name, opts) {
+    if (!b.rig) return;
+    const c = this.clip(name);
+    if (!c) return;
+    if (b.state !== name) { b.state = name; b.rig.play(c, { restart: true, ...opts }); }
+    else b.rig.play(c, opts);
   }
 
   respawn(b) {
@@ -44,15 +60,22 @@ export class Bots {
     b.group.position.copy(b.node.pos);
     b.group.rotation.set(0, Math.random() * 6.28, 0);
     b.group.visible = true;
-    b.hp = 100; b.dead = 0; b.cool = 1.5;
+    b.hp = 100; b.dead = 0; b.cool = 1.5; b.react = 0; b.state = '';
     b.group.traverse(o => { if (o.isMesh) o.material.forEach(mt => mt.color.setScalar(1)); });
+    this.setAnim(b, 'standpose_m0');
   }
 
   // Damage from the player. Returns true when the shot killed the bot.
   hit(b, dmg) {
     if (b.dead) return false;
     b.hp -= dmg; b.hitFlash = 0.15;
-    if (b.hp <= 0) { b.dead = 0.001; this.onBotKilled(b); return true; }
+    if (b.hp <= 0) {
+      b.dead = 0.001; this.onBotKilled(b);
+      this.setAnim(b, pick(DEATH), { loop: false });
+      return true;
+    }
+    b.react = 0.5;
+    this.setAnim(b, pick(HIT), { loop: false });
     return false;
   }
 
@@ -66,15 +89,16 @@ export class Bots {
     const eye = new THREE.Vector3(), pe = player.pos.clone(); pe.y += player.eye;
     for (const b of this.list) {
       const g = b.group;
+      if (b.rig) b.rig.update(dt);
       if (b.dead) {
         b.dead += dt;
-        // Fall over, sink, come back.
-        g.rotation.x = Math.min(Math.PI / 2, b.dead * 4);
-        if (b.dead > 2.5) g.position.y -= dt * 0.8;
-        if (b.dead > 4) this.respawn(b);
+        if (!b.rig) g.rotation.x = Math.min(Math.PI / 2, b.dead * 4);
+        if (b.dead > 3) g.position.y -= dt * 0.8;
+        if (b.dead > 4.5) this.respawn(b);
         continue;
       }
       if (b.hitFlash > 0) { b.hitFlash -= dt; const k = b.hitFlash > 0 ? 3 : 1; g.traverse(o => { if (o.isMesh) o.material.forEach(mt => mt.color.setScalar(k)); }); }
+      if (b.react > 0) { b.react -= dt; continue; } // flinching: stands still
 
       eye.copy(g.position); eye.y += 1.6;
       const toPlayer = pe.clone().sub(eye); const dist = toPlayer.length();
@@ -84,11 +108,10 @@ export class Bots {
         b.cool -= dt;
         if (b.cool <= 0) {
           b.cool = 0.7 + Math.random() * 0.6;
-          // Accuracy falls off with range; player moving is harder to hit.
           const p = Math.max(0.15, 0.6 - dist / 60) * (player.vel.lengthSq() > 1 ? 0.6 : 1);
           this.onPlayerHit(b, Math.random() < p ? 9 : 0);
         }
-        if (dist > 8) this.walk(b, dt); // close in
+        if (dist > 8) this.walk(b, dt); else this.setAnim(b, 'fire_pose_m0');
       } else {
         b.cool = Math.max(b.cool, 0.4);
         this.walk(b, dt);
@@ -111,6 +134,7 @@ export class Bots {
     const yaw = Math.atan2(to.x, to.z);
     let dy = yaw - g.rotation.y; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
     g.rotation.y += dy * Math.min(1, dt * 8);
+    this.setAnim(b, 'run_m0', { speed: b.speed / 3.2 });
   }
 
   get groups() { return this.list.filter(b => !b.dead).map(b => b.group); }

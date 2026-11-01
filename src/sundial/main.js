@@ -8,6 +8,8 @@ import { TexSource, mapToGroup, modelToGroup } from './build.js';
 import { cache } from './store.js';
 import { Bots } from './bots.js';
 import { Sfx } from './audio.js';
+import { parseAnim } from './anim.js';
+import { makeBind } from './skeleton.js';
 
 const $ = s => document.querySelector(s);
 const status = t => { $('#dirstatus').textContent = t; };
@@ -15,7 +17,8 @@ const msg = (t, ms = 2000) => { const el = $('#msg'); el.textContent = t; clearT
 
 // ---------- file acquisition ----------
 let pickedFiles = new Map(); // lowercase name -> File
-const NEEDED = ['gun.pak', 'sounds.pak'];
+const NEEDED = ['gun.pak', 'sounds.pak', 'anim.pak', 'fe_anim.pak'];
+let anims = null, bind = null; // animation clips by name, and the humanoid bind pose
 let sfx = new Sfx(null);
 const hurtVoices = [], dieVoices = [];
 const pick = a => a[Math.floor(Math.random() * a.length)];
@@ -44,7 +47,7 @@ async function fileBuf(name) {
 async function refreshLevelList() {
   const cached = new Set(SRC ? [] : await cache.keys());
   if (SRC) for (const n of [10, 11, 13, 21, 29, 32, 33, 34, 35, 36, 42, 43, 45, 46, 47, 48, 50, 55, 56, 64, 65, 100, 101, 102, 103, 104, 105, 106]) pickedFiles.set(`l_${n}_ar.pak`, true);
-  if (SRC) { pickedFiles.set('gun.pak', true); pickedFiles.set('sounds.pak', true); }
+  if (SRC) for (const n of NEEDED) pickedFiles.set(n, true);
   const names = new Set([...cached, ...pickedFiles.keys()].filter(n => ARENA.test(n)));
   const sel = $('#level');
   sel.innerHTML = '';
@@ -58,7 +61,7 @@ async function refreshLevelList() {
   $('#levelrow').hidden = !(sorted.length && haveGun);
   $('#cachenote').textContent = cached.size ? `${cached.size} archive(s) kept in this browser. Nothing is uploaded anywhere.` : '';
   if (sorted.length && haveGun) status(`${sorted.length} arenas available.`);
-  else if (sorted.length) status('Found arenas but not GUN.PAK / SOUNDS.PAK. Pick the PAK folder itself.');
+  else if (sorted.length) status('Found arenas but not GUN.PAK / SOUNDS.PAK / ANIM.PAK. Pick the PAK folder itself.');
 }
 
 $('#dir').addEventListener('change', e => {
@@ -233,9 +236,18 @@ function fire() {
 async function enter(levelName) {
   status('Loading…');
   const n = levelName.match(ARENA)[1];
-  const [lvlBuf, gunBuf, sndBuf] = await Promise.all([fileBuf(levelName), fileBuf('gun.pak'), fileBuf('sounds.pak')]);
+  const [lvlBuf, gunBuf, sndBuf, animBuf, feBuf] = await Promise.all([fileBuf(levelName), fileBuf('gun.pak'), fileBuf('sounds.pak'), fileBuf('anim.pak'), fileBuf('fe_anim.pak')]);
   const pak = new Pak(lvlBuf, levelName);
   const gun = new Pak(gunBuf, 'gun.pak');
+  if (!anims) {
+    const ap = new Pak(animBuf, 'anim.pak'), fe = new Pak(feBuf, 'fe_anim.pak');
+    anims = new Map();
+    for (const p of ap.list('anim/data/ts2/')) {
+      try { anims.set(p.slice('anim/data/ts2/'.length, -4), parseAnim(ap.get(p))); } catch (e) { /* skip odd clips */ }
+    }
+    try { bind = makeBind(parseAnim(fe.get('anim/data/ts2/human_19_bindpose.raw'))); } catch (e) { console.warn('bind pose failed', e); }
+    console.log(`animations: ${anims.size} clips, bind pose ${bind ? 'ok' : 'missing'}`);
+  }
   if (!sfx.pak) {
     sfx = new Sfx(new Pak(sndBuf, 'sounds.pak'));
     for (const p of sfx.pak.list('sfx/male')) {
@@ -312,7 +324,7 @@ async function enter(levelName) {
 
   // Bots: the arena's own roster, patrolling its nav graph.
   if (world.bots) for (const b of world.bots.list) scene.remove(b.group);
-  world.bots = new Bots({ pak, texSrc, pad: world.pad, scene, solid: world.solid, onPlayerHit: playerHit, onBotKilled: () => {} });
+  world.bots = new Bots({ pak, texSrc, pad: world.pad, scene, solid: world.solid, anims, bind, onPlayerHit: playerHit, onBotKilled: () => {} });
   world.bots.spawn(Math.min(4, Math.max(1, world.bots.models.length)));
 
   player.kills = 0; player.ammo = 40; $('#ammo').textContent = player.ammo;
