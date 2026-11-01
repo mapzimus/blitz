@@ -24,8 +24,10 @@ const BOT_NAMES = ['Cortez', 'Harry Tipper', 'Jo-Beth', 'Hank', 'Lady Jane', 'Vi
 // ---------- file acquisition ----------
 let pickedFiles = new Map(); // lowercase name -> File
 const NEEDED = ['gun.pak', 'sounds.pak', 'anim.pak', 'fe_anim.pak'];
-const ARENA = /^l_(\d+)_ar\.pak$/;
+const ARENA = /^l_(\d+)_(ar|st)\.pak$/;
 const ARENA_IDS = [10, 11, 13, 21, 29, 32, 33, 34, 35, 36, 42, 43, 45, 46, 47, 48, 50, 55, 56, 64, 65];
+const STORY_IDS = [10, 11, 20, 31, 32, 34, 35, 38, 39, 40, 41, 45, 46, 47, 48];
+const STORY = { 10: 'Siberia', 11: 'Siberia · Dam', 20: 'Chicago', 31: 'Notre Dame', 32: 'Return to Planet X', 34: 'Wild West', 35: 'Atom Smasher', 38: 'Aztec', 39: 'Planet X', 40: 'NeoTokyo', 41: 'Robot Factory', 45: 'Space Station', 46: 'Chicago · Night', 47: 'Space', 48: 'Oblask' };
 // Themes read off each pack's sky and props; the game's own arena names live in its text tables.
 const THEME = { 10: 'Siberia', 11: 'Siberia · Hangar', 13: 'The Site', 21: 'Chinese Restaurant', 29: 'Aztec', 32: 'Wild West', 33: 'Atom Smasher', 34: 'Notre Dame', 35: 'Chicago', 36: 'Space Station', 42: 'Mexican Mission', 43: 'Chicago · Gangsters', 45: 'Hospital', 46: 'Scrapyard', 47: 'Circus', 48: 'Aztec Temple', 50: 'Ufopia', 55: 'Chicago · Streets', 56: 'Night', 64: 'Robot Factory', 65: 'Scrapyard · Night' };
 const SRC = new URLSearchParams(location.search).get('src'); // dev: fetch archives from a local server
@@ -35,7 +37,7 @@ async function fileBuf(name) {
   name = name.toLowerCase();
   if (SRC) {
     let path = name.toUpperCase();
-    if (ARENA.test(name)) path = 'ARCADE/' + path;
+    if (ARENA.test(name)) path = (name.endsWith('_st.pak') ? 'STORY/' : 'ARCADE/') + path;
     else if (/^\d{4}\.mib$/.test(name)) { const id = parseInt(name); path = `../MUSIC/MUSIC${id < 1030 ? 0 : id < 1060 ? 1 : 2}/${path}`; }
     const r = await fetch(SRC + path);
     if (!r.ok) throw new Error(`${r.status} fetching ${name}`);
@@ -54,17 +56,18 @@ async function refreshLevelList() {
   const cached = new Set(SRC ? [] : await cache.keys());
   if (SRC) {
     for (const n of ARENA_IDS) pickedFiles.set(`l_${n}_ar.pak`, true);
+    for (const n of STORY_IDS) pickedFiles.set(`l_${n}_st.pak`, true);
     for (const n of NEEDED) pickedFiles.set(n, true);
     for (const n of MUSIC_TRACKS) pickedFiles.set(`${n}.mib`, true);
   }
   const names = new Set([...cached, ...pickedFiles.keys()].filter(n => ARENA.test(n)));
   const sel = $('#level');
   sel.innerHTML = '';
-  const sorted = [...names].sort((a, b) => parseInt(a.match(ARENA)[1]) - parseInt(b.match(ARENA)[1]));
+  const sorted = [...names].sort((a, b) => (a.endsWith('_st.pak') - b.endsWith('_st.pak')) || parseInt(a.match(ARENA)[1]) - parseInt(b.match(ARENA)[1]));
   for (const n of sorted) {
     const o = document.createElement('option');
-    const id = n.match(ARENA)[1];
-    o.value = n; o.textContent = `${THEME[id] || 'Arena'} (${id})${cached.has(n) ? ' ·cached' : ''}`;
+    const [, id, kind] = n.match(ARENA);
+    o.value = n; o.textContent = kind === 'st' ? `Story map: ${STORY[id] || id}` : `${THEME[id] || 'Arena'} (${id})${cached.has(n) ? ' ·cached' : ''}`;
     sel.appendChild(o);
   }
   haveMusic = [...cached, ...pickedFiles.keys()].some(n => /^\d{4}\.mib$/.test(n));
@@ -406,7 +409,7 @@ function die(by) {
   if (by && by.kills >= match.limit) endMatch();
 }
 function respawn() {
-  const nodes = world.nodes;
+  const nodes = world.spawns || world.nodes;
   if (nodes.length) { const s = pick(nodes); world.spawn.set(s.pos.x, s.pos.y + 0.2, s.pos.z); }
   player.pos.copy(world.spawn); player.vel.set(0, 0, 0); player.hp = 100; player.armour = 0; player.dead = false;
   player.weapons = []; giveWeapon('luger');
@@ -514,6 +517,11 @@ async function enter(levelName) {
   world.pad = padBytes ? parsePad(padBytes) : { nodes: [], links: [] };
   world.nodes = world.pad.nodes.filter(nd => Number.isFinite(nd.pos[0])).map(nd => ({ pos: new THREE.Vector3(...nd.pos) }));
   if (!world.nodes.length) { const box = new THREE.Box3().setFromObject(world.group); const c = box.getCenter(new THREE.Vector3()); c.y = box.max.y - 1; world.nodes.push({ pos: c }); }
+  // The game's own placed points, when the pack has them: type 1 = spawn spots, type 0 = item spots.
+  const extra = (world.pad.extra || []).filter(x => Number.isFinite(x.pos[0]));
+  world.spawns = extra.filter(x => x.type === 1).map(x => ({ pos: new THREE.Vector3(...x.pos) }));
+  world.itemSpots = extra.filter(x => x.type === 0).map(x => ({ pos: new THREE.Vector3(...x.pos) }));
+  if (world.spawns.length < 2) world.spawns = world.nodes;
 
   // Projectiles, pickups, bots.
   const protos = {};
@@ -522,8 +530,9 @@ async function enter(levelName) {
   }
   world.proj = new Projectiles({ scene, solid: world.solid, onSplash: splash, sfx, models: protos });
   world.proj.listener = camera.position;
-  world.pickups = new Pickups({ scene, pak, gun: world.gun, texSrc, gunTex: world.gunTex, nodes: world.nodes, sfx, roster: BOT_WEAPONS.concat(['minigun', 'homingrocketlauncher', 'sniperrifle', 'flamethrower', 'electrogun', 'tnt']) });
-  world.pickups.place(Math.min(24, Math.max(8, Math.floor(world.nodes.length / 6))));
+  const spots = world.itemSpots.length >= 6 ? world.itemSpots : world.nodes;
+  world.pickups = new Pickups({ scene, pak, gun: world.gun, texSrc, gunTex: world.gunTex, nodes: spots, sfx, roster: BOT_WEAPONS.concat(['minigun', 'homingrocketlauncher', 'sniperrifle', 'flamethrower', 'electrogun', 'tnt']) });
+  world.pickups.place(spots === world.itemSpots ? spots.length : Math.min(24, Math.max(8, Math.floor(world.nodes.length / 6))));
   world.bots = new Bots({ pak, gun: world.gun, texSrc, gunTex: world.gunTex, pad: world.pad, scene, solid: world.solid, anims, bind, onShoot: onBotShoot, onBotKilled, names: BOT_NAMES.slice().sort(() => Math.random() - 0.5) });
   world.bots.spawn(Math.min(parseInt($('#botcount').value) || 4, Math.max(1, world.bots.models.length * 2)));
 
@@ -544,7 +553,7 @@ addEventListener('keydown', e => { if (e.code === 'Escape' && world.group && !ma
 $('#setup').addEventListener('click', e => { if (world.group && e.target === $('#setup')) { $('#setup').hidden = true; grabMouse(); } });
 
 // Debug handle for the console; tick() forces frames when the tab is not being painted.
-window.sundial = { scene, weaponScene, world, player, camera, match, get weapon() { return weapon; }, fireOnce, giveWeapon, selectWeapon, tick: (n = 1, dt = 1 / 60) => { for (let i = 0; i < n; i++) render(dt); } };
+window.sundial = { scene, weaponScene, world, player, camera, match, get weapon() { return weapon; }, get music() { return music; }, fireOnce, giveWeapon, selectWeapon, playMusic, tick: (n = 1, dt = 1 / 60) => { for (let i = 0; i < n; i++) render(dt); } };
 
 // ---------- loop ----------
 let last = performance.now();
