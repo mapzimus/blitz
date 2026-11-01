@@ -181,12 +181,47 @@ export class Bots {
       } else {
         b.cool = Math.max(b.cool, 0.4);
         b.lastSeen = (b.lastSeen || 0) + dt;
-        // Hunt the last known position for a while, else head for the mode's goal, else roam.
+        // Hunt the last known position for a while, else head for the mode's goal, else go shopping, else roam.
         if (b.hunt && b.lastSeen < 8) this.walk(b, dt, true);
         else if (b.goal) { b.hunt = b.goal; this.walk(b, dt, true); }
+        else if (this.seekPickup(b, dt)) { /* walking to an item */ }
         else { b.hunt = null; this.walk(b, dt); }
       }
     }
+  }
+
+  // Wander toward a worthwhile pickup nearby: a different gun, or health when hurt. Returns true while doing so.
+  seekPickup(b, dt) {
+    if (!this.pickups) return false;
+    if (!b.seek || b.seek.taken > 0 || !b.seek.group.visible) {
+      b.seek = null;
+      if (Math.random() > dt * 0.5) return false; // look around now and then, not every frame
+      let best = null, bd = 14;
+      for (const p of this.pickups.list) {
+        if (p.taken > 0) continue;
+        const want = (p.kind === 'weapon' && p.key !== b.weapon) || (p.kind === 'health' && b.hp < 70) || (p.kind === 'armour' && !b.armoured);
+        if (!want) continue;
+        const d = p.group.position.distanceTo(b.group.position);
+        if (d < bd) { bd = d; best = p; }
+      }
+      if (!best) return false;
+      b.seek = best;
+    }
+    const g = b.group, tp = b.seek.group.position;
+    const flat = tp.clone(); flat.y = g.position.y;
+    const d = flat.distanceTo(g.position);
+    if (d < 3.5) {
+      // close: walk straight at it
+      const to = flat.sub(g.position).normalize();
+      g.position.addScaledVector(to, Math.min(d, b.speed * dt));
+      g.rotation.y = Math.atan2(to.x, to.z);
+      this.setAnim(b, 'run_m0', { speed: b.speed / 3.2 });
+      if (d < 0.2) b.seek = null;
+      return true;
+    }
+    b.hunt = this.nearestNode(tp);
+    this.walk(b, dt, true);
+    return true;
   }
 
   walk(b, dt, hunting = false) {

@@ -44,7 +44,7 @@ export class Pickups {
     this.scene.add(g);
     this.list.push({ ...k, group: g, base: pos.y + 0.5, taken: 0, spin: this.rng() * 6 });
   }
-  update(dt, player, onTake) {
+  update(dt, player, onTake, bots) {
     const t = performance.now() / 1000;
     for (const p of this.list) {
       if (p.taken > 0) { p.taken -= dt; if (p.taken <= 0) p.group.visible = true; continue; }
@@ -52,7 +52,18 @@ export class Pickups {
       p.group.position.y = p.base + Math.sin(t * 2 + p.spin) * 0.08;
       const d = p.group.position.distanceTo(player.pos.clone().setY(p.group.position.y));
       if (d < 0.9 && Math.abs(player.pos.y - p.base) < 1.5) {
-        if (onTake(p)) { p.taken = p.kind === 'weapon' ? 25 : 18; p.group.visible = false; }
+        if (onTake(p)) { p.taken = p.kind === 'weapon' ? 25 : 18; p.group.visible = false; continue; }
+      }
+      // Bots grab what they walk over: a better gun, or health when hurt.
+      if (bots) for (const b of bots.list) {
+        if (b.dead) continue;
+        const bd = p.group.position.distanceTo(b.group.position.clone().setY(p.group.position.y));
+        if (bd > 0.9 || Math.abs(b.group.position.y - p.base) > 1.5) continue;
+        let took = false;
+        if (p.kind === 'weapon' && p.key !== b.weapon && Math.random() < 0.7) { bots.arm(b, p.key); took = true; }
+        else if (p.kind === 'health' && b.hp < 70) { b.hp = Math.min(100, b.hp + 25); took = true; }
+        else if (p.kind === 'armour' && !b.armoured) { b.armoured = true; b.hp = Math.min(150, b.hp + 50); took = true; }
+        if (took) { p.taken = p.kind === 'weapon' ? 25 : 18; p.group.visible = false; break; }
       }
     }
   }

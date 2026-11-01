@@ -36,3 +36,15 @@ select{font:16px Arial,sans-serif;padding:8px 10px;background:#1a1e2a;color:#fff
 #end{text-align:center;font-size:34px;pointer-events:auto}
 #end .fine{margin-top:12px;font-size:14px}
 #zoom{position:absolute;inset:0;box-shadow:inset 0 0 0 40vmin #000;border-radius:50%;display:none}
+#leaguebox{margin-top:16px}
+#leaguebox summary{font-family:Impact,sans-serif;letter-spacing:3px;color:#9aa;cursor:pointer}
+#league .lg{margin:10px 0}
+#league h3{font-family:Impact,sans-serif;font-size:16px;letter-spacing:3px;color:var(--teal);margin:6px 0}
+#league .locked h3{color:#556}
+#league .match{display:block;width:100%;text-align:left;font:14px Arial,sans-serif;color:#dde;background:#141822;border:1px solid #333;padding:6px 10px;margin:3px 0;cursor:pointer}
+#league .match:hover:not([disabled]){border-color:var(--teal)}
+#league .match[disabled]{opacity:.4;cursor:default}
+#league .match small{color:#889;margin-left:8px}
+#league .match span{display:inline-block;width:22px}
+.medal{font-size:26px;letter-spacing:4px;margin-top:8px}
+.medal.gold{color:#ffd24a}.medal.silver{color:#d8dde6}.medal.bronze{color:#d9924a}

@@ -6,7 +6,8 @@ import { parsePad } from './pad.js';
 import { parseModel } from './model.js';
 import { parseAnim } from './anim.js';
 import { makeBind } from './skeleton.js';
-import { TexSource, mapToGroup, modelToGroup } from './build.js';
+import { TexSource, mapToGroup, modelToGroup, hideFlash } from './build.js';
+import { LEAGUE, loadProgress, record, medalFor, unlocked, findMatch } from './league.js';
 import { cache } from './store.js';
 import { Bots } from './bots.js';
 import { Sfx } from './audio.js';
@@ -236,7 +237,7 @@ function step(dt) {
 
   if (world.bots) world.bots.update(dt, player);
   if (world.proj) world.proj.update(dt, projectileHit);
-  if (world.pickups && !player.dead) world.pickups.update(dt, player, takePickup);
+  if (world.pickups) world.pickups.update(dt, player.dead ? { pos: new THREE.Vector3(0, 9999, 0) } : player, takePickup, world.bots);
   modeTick(dt);
 
   // match clock
@@ -291,14 +292,13 @@ function viewModel(key) {
   if (!world.gun || !world.gun.has(p)) return null;
   const gm = parseModel(world.gun.get(p));
   const g = modelToGroup(gm, world.gunTex);
-  g.scale.setScalar(0.12 * (gm.scale || 1));
+  g.flash = hideFlash(g);
+  // View models differ in native size; scale each so its length along the barrel is about the same.
+  const box = new THREE.Box3();
+  g.traverse(o => { if (o.isMesh && o.visible) { o.geometry.computeBoundingBox(); box.union(o.geometry.boundingBox); } });
+  const len = Math.max(0.3, box.max.z - box.min.z) * (gm.scale || 1);
+  g.scale.setScalar(0.14 * (gm.scale || 1) / Math.max(0.8, len));
   g.rotation.set(0, Math.PI, 0);
-  g.flash = [];
-  g.traverse(o => {
-    if (!o.isMesh) return;
-    const alpha = o.material.every(m => m.map && m.map.hasAlpha);
-    if (o.userData.stream === 2 || (alpha && o.geometry.boundingSphere.radius > 0.25)) { o.visible = false; g.flash.push(o); }
-  });
   viewModels.set(key, g);
   return g;
 }
@@ -533,7 +533,14 @@ function endMatch() {
   updateBoard();
   const rows = standings();
   const win = rows[0].me;
-  $('#end').innerHTML = `${win ? 'YOU WIN' : rows[0].name.toUpperCase() + ' WINS'}<div class="fine">${rows.map(r => `${r.name} ${r.score}`).join(' &nbsp;·&nbsp; ')}</div><div class="fine">Press Enter for the menu</div>`;
+  let medalLine = '';
+  if (match.preset) {
+    const medal = medalFor(match.preset, win, match.time - match.left);
+    if (medal) { record(progress, match.preset.id, medal); medalLine = `<div class="medal ${medal}">${medal.toUpperCase()} MEDAL</div>`; }
+    else medalLine = '<div class="fine">No medal this time.</div>';
+    renderLeague();
+  }
+  $('#end').innerHTML = `${win ? 'YOU WIN' : rows[0].name.toUpperCase() + ' WINS'}${medalLine}<div class="fine">${rows.map(r => `${r.name} ${r.score}`).join(' &nbsp;·&nbsp; ')}</div><div class="fine">Press Enter for the menu</div>`;
   $('#end').hidden = false; $('#board').hidden = false;
   if (document.exitPointerLock) document.exitPointerLock();
 }
@@ -607,8 +614,9 @@ async function enter(levelName) {
   world.bots = new Bots({ pak, gun: world.gun, texSrc, gunTex: world.gunTex, pad: world.pad, scene, solid: world.solid, anims, bind, onShoot: onBotShoot, onBotKilled, names: BOT_NAMES.slice().sort(() => Math.random() - 0.5) });
   world.bots.spawn(Math.min(parseInt($('#botcount').value) || 4, Math.max(1, world.bots.models.length * 2)));
   world.bots.skill = parseFloat($('#skill').value) || 1;
+  world.bots.pickups = world.pickups;
 
-  match.mode = $('#mode').value; match.limit = parseInt($('#killlimit').value) || 10; match.left = match.time; match.over = false;
+  match.mode = $('#mode').value; match.limit = parseInt($('#killlimit').value) || 10; match.time = match.preset ? match.preset.time : 300; match.left = match.time; match.over = false;
   match.lives = match.mode === 'elim' ? Math.max(1, Math.min(9, Math.round(match.limit / 3))) : 3;
   match.bagLimit = match.mode === 'bag' ? match.limit * 6 : 60;
   match.holder = null; if (match.bag) { scene.remove(match.bag); match.bag = null; }
@@ -633,7 +641,29 @@ async function enter(levelName) {
   console.log(`arena ${n}: ${map.sections.length} sections, ${tris} tris, ${map.materials.length} materials, ${world.nodes.length} nav nodes, ${world.bots.list.length} bots, ${world.pickups.list.length} pickups, ${anims ? anims.size : 0} clips`);
 }
 
-$('#go').addEventListener('click', () => enter($('#level').value).catch(e => { status(e.message); console.error(e); }));
+$('#go').addEventListener('click', () => { match.preset = null; enter($('#level').value).catch(e => { status(e.message); console.error(e); }); });
+
+// ---------- arcade league ----------
+let progress = loadProgress();
+function renderLeague() {
+  const el = $('#league'); if (!el) return;
+  const MEDAL = { gold: '🥇', silver: '🥈', bronze: '🥉' };
+  el.innerHTML = LEAGUE.map((l, i) => {
+    const open = unlocked(progress, i);
+    return `<div class="lg ${open ? '' : 'locked'}"><h3>${l.name}${open ? '' : ' · locked'}</h3>` + l.matches.map(m =>
+      `<button class="match" data-id="${m.id}" ${open ? '' : 'disabled'}><span>${MEDAL[progress[m.id]] || '·'}</span> ${m.name} <small>${{ dm: 'Deathmatch', elim: 'Elimination', bag: 'Bag Tag' }[m.mode]} · ${m.bots} bots</small></button>`).join('') + '</div>';
+  }).join('');
+  el.querySelectorAll('.match').forEach(b => b.addEventListener('click', () => startPreset(b.dataset.id)));
+}
+function startPreset(id) {
+  const m = findMatch(id); if (!m) return;
+  if (!pickedFiles.has(m.level) && !SRC) { cache.keys().then(ks => { if (!ks.includes(m.level)) status(`That match needs ${m.level.toUpperCase()} from your disc folder.`); }); }
+  $('#mode').value = m.mode; $('#level').value = m.level; $('#botcount').value = String(m.bots);
+  $('#skill').value = String(m.skill); $('#killlimit').value = String(m.limit);
+  match.preset = m;
+  enter(m.level).catch(e => { status(e.message); console.error(e); });
+}
+renderLeague();
 addEventListener('keydown', e => { if (e.code === 'Escape' && world.group && !match.over) { $('#setup').hidden = false; firing = false; } });
 $('#setup').addEventListener('click', e => { if (world.group && e.target === $('#setup')) { $('#setup').hidden = true; grabMouse(); } });
 
