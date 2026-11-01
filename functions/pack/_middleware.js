@@ -1,4 +1,5 @@
-// Fail-closed guard for the archive route: /pack/* is served only to a request carrying a valid
+// Fail-closed guard for the archive route (runs for everything under /pack/ because it lives in that
+// folder, on the same routing decision as the handler): served only to a request carrying a valid
 // Cloudflare Access JWT for this application and the allowed email. Static pages are left alone
 // (Access gates them at the edge); this is defense in depth for the copyrighted data.
 // Env (Pages settings): ACCESS_TEAM_DOMAIN (e.g. myteam.cloudflareaccess.com), ACCESS_AUD, ALLOWED_EMAIL.
@@ -34,8 +35,6 @@ async function verify(token, env) {
 }
 
 export async function onRequest(ctx) {
-  const url = new URL(ctx.request.url);
-  if (!url.pathname.startsWith('/pack/')) return ctx.next();
   const { env } = ctx;
   if (!env.ACCESS_TEAM_DOMAIN || !env.ACCESS_AUD || !env.ALLOWED_EMAIL) return new Response('archive locked: Access not configured', { status: 403 });
   const token = ctx.request.headers.get('Cf-Access-Jwt-Assertion') || (ctx.request.headers.get('cookie') || '').match(/CF_Authorization=([^;]+)/)?.[1];
