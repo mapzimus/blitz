@@ -28,9 +28,10 @@ const NEEDED = ['gun.pak', 'sounds.pak', 'anim.pak', 'fe_anim.pak'];
 const ARENA = /^l_(\d+)_(ar|st)\.pak$/;
 const ARENA_IDS = [10, 11, 13, 21, 29, 32, 33, 34, 35, 36, 42, 43, 45, 46, 47, 48, 50, 55, 56, 64, 65];
 const STORY_IDS = [10, 11, 20, 31, 32, 34, 35, 38, 39, 40, 41, 45, 46, 47, 48];
-const STORY = { 10: 'Siberia', 11: 'Siberia · Dam', 20: 'Chicago', 31: 'Notre Dame', 32: 'Return to Planet X', 34: 'Wild West', 35: 'Atom Smasher', 38: 'Aztec', 39: 'Planet X', 40: 'NeoTokyo', 41: 'Robot Factory', 45: 'Space Station', 46: 'Chicago · Night', 47: 'Space', 48: 'Oblask' };
-// Themes read off each pack's sky and props; the game's own arena names live in its text tables.
-const THEME = { 10: 'Siberia', 11: 'Siberia · Hangar', 13: 'The Site', 21: 'Chinese Restaurant', 29: 'Aztec', 32: 'Wild West', 33: 'Atom Smasher', 34: 'Notre Dame', 35: 'Chicago', 36: 'Space Station', 42: 'Mexican Mission', 43: 'Chicago · Gangsters', 45: 'Hospital', 46: 'Scrapyard', 47: 'Circus', 48: 'Aztec Temple', 50: 'Ufopia', 55: 'Chicago · Streets', 56: 'Night', 64: 'Robot Factory', 65: 'Scrapyard · Night' };
+// Story packs named by the era their props and sky belong to (the game's own story titles for those eras).
+const STORY = { 10: 'Siberia', 11: 'Siberia · Hangar', 20: 'Chicago', 31: 'Atom Smasher', 32: 'Wild West', 34: 'Notre Dame', 35: 'Dam', 38: 'NeoTokyo', 39: 'Spacestation', 40: 'Return to Planet X', 41: 'Robot Factory', 45: 'Hospital', 46: 'Scrapyard', 47: 'Circus', 48: 'Aztec' };
+// Arena names by level number, from the game's own arena table and English text table.
+const THEME = { 10: 'Compound', 11: 'Streets', 13: 'Site', 20: 'Warehouse', 21: 'Chinese', 29: 'Pyramid', 31: 'Atom Smasher', 32: 'Wild West', 33: 'Hangar', 34: 'Notre Dame', 35: 'Dam', 36: 'Ice Station', 38: 'NeoTokyo', 39: 'Spacestation', 40: 'Planet X', 41: 'Robot Factory', 42: 'Mexican Mission', 43: 'Nightclub', 45: 'Hospital', 46: 'Scrapyard', 47: 'Circus', 48: 'Pyramid', 50: 'Ufopia', 55: 'Training Ground', 56: 'Chasm', 64: 'Robot Factory', 65: 'Scrapyard' };
 const SRC = new URLSearchParams(location.search).get('src'); // dev: fetch archives from a local server
 const MUSIC_TRACKS = [...Array(30)].map((_, i) => 1030 + i); // MUSIC1 folder, 1030-1059
 
@@ -338,7 +339,7 @@ function fireOnce() {
     for (let i = 0; i < n; i++) {
       const s = d.spread * (player.zoom && d.zoom ? 0.3 : 1);
       const dd = dir.clone().add(new THREE.Vector3((Math.random() - 0.5) * s * 2, (Math.random() - 0.5) * s * 2, (Math.random() - 0.5) * s * 2)).normalize();
-      hitscan(origin, dd, range, d.dmg, w.key, d.tracer);
+      hitscan(origin, dd, range, d.dmg, w.key, d.tracer, d.head);
     }
   }
   if (w.clip === 0 && w.ammo > 0) reload();
@@ -355,7 +356,7 @@ function nearestBotInSight(origin, dir) {
   }
   return best;
 }
-function hitscan(origin, dir, range, dmg, key, tracer) {
+function hitscan(origin, dir, range, dmg, key, tracer, headDmg) {
   ray.set(origin, dir); ray.far = range;
   const botGroups = world.bots ? world.bots.groups : [];
   const hits = ray.intersectObjects([...botGroups, ...world.solid], true);
@@ -364,8 +365,10 @@ function hitscan(origin, dir, range, dmg, key, tracer) {
     end = hits[0].point;
     const bot = world.bots && world.bots.find(hits[0].object);
     if (bot) {
-      if (world.bots.hit(bot, dmg, 'player')) { /* kill handled in onBotKilled */ }
-      else if (dmg >= 15 && hurtVoices.length) sfx.play(pick(hurtVoices), { pos: bot.group.position, listener: camera.position, volume: 0.6 });
+      const head = world.bots.isHead(bot, hits[0].object);
+      const d = head ? Math.max(dmg, headDmg || dmg) * 1.5 : dmg;
+      if (world.bots.hit(bot, d, 'player')) { if (head) msg(`HEADSHOT  ${bot.name.toUpperCase()}`); }
+      else if (d >= 15 && hurtVoices.length) sfx.play(pick(hurtVoices), { pos: bot.group.position, listener: camera.position, volume: 0.6 });
     } else if (Math.random() < 0.25) sfx.play(pick(SFX.ricochet), { pos: end, listener: camera.position, volume: 0.5 });
   }
   if (tracer) {

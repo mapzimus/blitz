@@ -5,6 +5,7 @@ import { parseModel } from './model.js';
 import { modelToGroup, hideFlash } from './build.js';
 import { Rig, RWRIST, HEAD, gunGrip } from './skeleton.js';
 import { WEAPONS, BOT_WEAPONS } from './weapons.js';
+import { charName } from './names.js';
 
 const DEATH = ['chestshot1_m0', 'chestshot2_m0', 'heartshot_m0', 'shothead_m0', 'shothead2_m0', 'fall_m0', 'stomachhit_m0'];
 const HIT = ['hit_1_m0', 'hit_2_m0', 'hit_3_m0', 'hit_4_m0', 'hit_5_m0', 'Hit_react1_m0', 'Hit_react2_m0'];
@@ -46,7 +47,7 @@ export class Bots {
       const g = modelToGroup(model, this.texSrc, { lit: true });
       g.scale.setScalar(model.scale || 1);
       g.userData.bot = true;
-      const b = { id: i, name: this.names[i] || name, group: g, hp: 100, node: null, target: null, cool: 1 + Math.random(), dead: 0, speed: 2.6 + Math.random() * 0.8, hitFlash: 0, react: 0, rig: null, state: '', kills: 0, deaths: 0, weapon: null, gunObj: null };
+      const b = { id: i, name: charName(name) || this.names[i] || name, group: g, hp: 100, node: null, target: null, cool: 1 + Math.random(), dead: 0, speed: 2.6 + Math.random() * 0.8, hitFlash: 0, react: 0, rig: null, state: '', kills: 0, deaths: 0, weapon: null, gunObj: null };
       if (this.bind) {
         b.rig = new Rig(g, model, this.bind);
         // Hats are separate models in character space; they ride the head bone.
@@ -246,6 +247,8 @@ export class Bots {
 
   get groups() { return this.list.filter(b => !b.dead).map(b => b.group); }
   find(obj) { let o = obj; while (o && !o.userData.bot) o = o.parent; return this.list.find(b => b.group === o); }
+  // True when the mesh that was hit belongs to the head or neck bone.
+  isHead(b, mesh) { return !!(b.rig && mesh && mesh.userData.part !== undefined && [3, 4].includes(b.rig.partBone[mesh.userData.part])); }
   // Splash damage from an explosion.
   splash(pos, radius, dmg, by) {
     for (const b of this.list) {
