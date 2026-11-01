@@ -2,7 +2,7 @@
 // animated with the game's own clips through the 19-bone humanoid rig.
 import * as THREE from 'three';
 import { parseModel } from './model.js';
-import { modelToGroup } from './build.js';
+import { modelToGroup, hideFlash } from './build.js';
 import { Rig, RWRIST, gunGrip } from './skeleton.js';
 import { WEAPONS, BOT_WEAPONS } from './weapons.js';
 
@@ -34,7 +34,7 @@ export class Bots {
   heldGun(key) {
     const p = `ob/guns/${key}_cl.raw`;
     if (!this.gun || !this.gun.has(p)) return null;
-    if (!this.gunCache.has(key)) { const m = parseModel(this.gun.get(p)); const g = modelToGroup(m, this.gunTex, { lit: true }); g.scale.setScalar(m.scale || 1); this.gunCache.set(key, g); }
+    if (!this.gunCache.has(key)) { const m = parseModel(this.gun.get(p)); const g = modelToGroup(m, this.gunTex, { lit: true }); g.scale.setScalar(m.scale || 1); hideFlash(g); this.gunCache.set(key, g); }
     return this.gunCache.get(key).clone();
   }
 

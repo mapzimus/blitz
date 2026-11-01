@@ -13,6 +13,7 @@ import { Sfx } from './audio.js';
 import { WEAPONS, ORDER, BOT_WEAPONS, SFX, slotName } from './weapons.js';
 import { Projectiles } from './projectiles.js';
 import { Pickups } from './pickups.js';
+import { Music } from './music.js';
 
 const $ = s => document.querySelector(s);
 const status = t => { $('#dirstatus').textContent = t; };
@@ -24,13 +25,19 @@ const BOT_NAMES = ['Cortez', 'Harry Tipper', 'Jo-Beth', 'Hank', 'Lady Jane', 'Vi
 let pickedFiles = new Map(); // lowercase name -> File
 const NEEDED = ['gun.pak', 'sounds.pak', 'anim.pak', 'fe_anim.pak'];
 const ARENA = /^l_(\d+)_ar\.pak$/;
+const ARENA_IDS = [10, 11, 13, 21, 29, 32, 33, 34, 35, 36, 42, 43, 45, 46, 47, 48, 50, 55, 56, 64, 65];
+// Themes read off each pack's sky and props; the game's own arena names live in its text tables.
+const THEME = { 10: 'Siberia', 11: 'Siberia · Hangar', 13: 'The Site', 21: 'Chinese Restaurant', 29: 'Aztec', 32: 'Wild West', 33: 'Atom Smasher', 34: 'Notre Dame', 35: 'Chicago', 36: 'Space Station', 42: 'Mexican Mission', 43: 'Chicago · Gangsters', 45: 'Hospital', 46: 'Scrapyard', 47: 'Circus', 48: 'Aztec Temple', 50: 'Ufopia', 55: 'Chicago · Streets', 56: 'Night', 64: 'Robot Factory', 65: 'Scrapyard · Night' };
 const SRC = new URLSearchParams(location.search).get('src'); // dev: fetch archives from a local server
+const MUSIC_TRACKS = [...Array(30)].map((_, i) => 1030 + i); // MUSIC1 folder, 1030-1059
 
 async function fileBuf(name) {
   name = name.toLowerCase();
   if (SRC) {
-    const sub = ARENA.test(name) ? 'ARCADE/' : '';
-    const r = await fetch(SRC + sub + name.toUpperCase());
+    let path = name.toUpperCase();
+    if (ARENA.test(name)) path = 'ARCADE/' + path;
+    else if (/^\d{4}\.mib$/.test(name)) { const id = parseInt(name); path = `../MUSIC/MUSIC${id < 1030 ? 0 : id < 1060 ? 1 : 2}/${path}`; }
+    const r = await fetch(SRC + path);
     if (!r.ok) throw new Error(`${r.status} fetching ${name}`);
     return r.arrayBuffer();
   }
@@ -46,8 +53,9 @@ async function fileBuf(name) {
 async function refreshLevelList() {
   const cached = new Set(SRC ? [] : await cache.keys());
   if (SRC) {
-    for (const n of [10, 11, 13, 21, 29, 32, 33, 34, 35, 36, 42, 43, 45, 46, 47, 48, 50, 55, 56, 64, 65, 100, 101, 102, 103, 104, 105, 106]) pickedFiles.set(`l_${n}_ar.pak`, true);
+    for (const n of ARENA_IDS) pickedFiles.set(`l_${n}_ar.pak`, true);
     for (const n of NEEDED) pickedFiles.set(n, true);
+    for (const n of MUSIC_TRACKS) pickedFiles.set(`${n}.mib`, true);
   }
   const names = new Set([...cached, ...pickedFiles.keys()].filter(n => ARENA.test(n)));
   const sel = $('#level');
@@ -55,19 +63,23 @@ async function refreshLevelList() {
   const sorted = [...names].sort((a, b) => parseInt(a.match(ARENA)[1]) - parseInt(b.match(ARENA)[1]));
   for (const n of sorted) {
     const o = document.createElement('option');
-    o.value = n; o.textContent = `Arena ${n.match(ARENA)[1]}${cached.has(n) ? ' (cached)' : ''}`;
+    const id = n.match(ARENA)[1];
+    o.value = n; o.textContent = `${THEME[id] || 'Arena'} (${id})${cached.has(n) ? ' ·cached' : ''}`;
     sel.appendChild(o);
   }
+  haveMusic = [...cached, ...pickedFiles.keys()].some(n => /^\d{4}\.mib$/.test(n));
   const have = NEEDED.every(n => cached.has(n) || pickedFiles.has(n));
   $('#levelrow').hidden = !(sorted.length && have);
   $('#cachenote').textContent = cached.size ? `${cached.size} archive(s) kept in this browser. Nothing is uploaded anywhere.` : '';
   if (sorted.length && have) status(`${sorted.length} arenas available.`);
   else if (sorted.length) status('Found arenas but not GUN.PAK / SOUNDS.PAK / ANIM.PAK. Pick the PAK folder itself.');
 }
+let haveMusic = false;
 $('#dir').addEventListener('change', e => {
   pickedFiles = new Map();
-  for (const f of e.target.files) if (/\.pak$/i.test(f.name)) pickedFiles.set(f.name.toLowerCase(), f);
-  status(pickedFiles.size ? `Found ${pickedFiles.size} archives.` : 'No .PAK files in that folder. Pick the PAK directory from the disc copy.');
+  for (const f of e.target.files) if (/\.(pak|mib)$/i.test(f.name)) pickedFiles.set(f.name.toLowerCase(), f);
+  const paks = [...pickedFiles.keys()].filter(n => n.endsWith('.pak')).length, mibs = pickedFiles.size - paks;
+  status(paks ? `Found ${paks} archives${mibs ? ` and ${mibs} music tracks` : ' (no MUSIC folder, so no music)'}.` : 'No .PAK files in that folder. Pick the folder you copied the disc to.');
   refreshLevelList();
 });
 refreshLevelList();
@@ -100,9 +112,17 @@ const player = {
   eye: 1.5, radius: 0.35, grounded: false, hp: 100, armour: 0, kills: 0, deaths: 0, dead: false, respawnIn: 0,
   weapons: [], cur: 0, cool: 0, reloading: 0, zoom: false, name: 'YOU',
 };
-let sfx = new Sfx(null), anims = null, bind = null;
+let sfx = new Sfx(null), anims = null, bind = null, music = null, track = -1;
 const hurtVoices = [], dieVoices = [];
 let hurt = 0;
+async function playMusic(next = false) {
+  if (!haveMusic) return;
+  if (!music) music = new Music(sfx.ensure(), sfx.gain);
+  const ids = MUSIC_TRACKS.filter(id => SRC || pickedFiles.has(`${id}.mib`) || true);
+  track = next && track >= 0 ? (track + 1) % ids.length : Math.floor(Math.random() * ids.length);
+  try { music.play(new Uint8Array(await fileBuf(`${ids[track]}.mib`)), { volume: 0.35 }); msg(`TRACK ${ids[track]}`, 1500); }
+  catch (e) { console.warn('music', e.message); if (!next) haveMusic = false; }
+}
 
 // ---------- input ----------
 const keys = new Set();
@@ -115,6 +135,7 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyR') reload();
   if (e.code === 'Tab') $('#board').hidden = false;
   if (e.code === 'KeyQ') selectWeapon(player.cur + 1);
+  if (e.code === 'KeyM') playMusic(true);
 });
 addEventListener('keyup', e => { keys.delete(e.code); if (e.code === 'Tab') $('#board').hidden = true; });
 addEventListener('wheel', e => { if (playing()) selectWeapon(player.cur + (e.deltaY > 0 ? 1 : -1)); });
@@ -512,7 +533,8 @@ async function enter(levelName) {
   $('#setup').hidden = true; $('#hud').hidden = false; $('#end').hidden = true;
   status(`${pickedFiles.size || ''} ready.`);
   grabMouse();
-  msg(`ARENA ${n}  ·  FIRST TO ${match.limit}`, 3000);
+  msg(`${(THEME[n] || 'ARENA ' + n).toUpperCase()}  ·  FIRST TO ${match.limit}`, 3000);
+  playMusic();
   let tris = 0; world.group.traverse(o => { if (o.isMesh) tris += o.geometry.index.count / 3; });
   console.log(`arena ${n}: ${map.sections.length} sections, ${tris} tris, ${map.materials.length} materials, ${world.nodes.length} nav nodes, ${world.bots.list.length} bots, ${world.pickups.list.length} pickups, ${anims ? anims.size : 0} clips`);
 }

@@ -5,7 +5,7 @@ import { Pak } from './pak.js';
 import { parseModel } from './model.js';
 import { parseAnim } from './anim.js';
 import { makeBind, Rig, HUMAN, PARENT, RWRIST, gunGrip } from './skeleton.js';
-import { TexSource, modelToGroup } from './build.js';
+import { TexSource, modelToGroup, hideFlash } from './build.js';
 import { cache } from './store.js';
 
 const $ = s => document.querySelector(s);
@@ -71,7 +71,7 @@ function loadGun() {
   gunObj = null;
   const p = $('#gun').value; if (!p || !rig) return;
   const gm = parseModel(gun.get(p));
-  gunObj = modelToGroup(gm, gunTex, { lit: true }); gunObj.scale.setScalar(gm.scale || 1);
+  gunObj = modelToGroup(gm, gunTex, { lit: true }); gunObj.scale.setScalar(gm.scale || 1); hideFlash(gunObj);
   rig.attach(gunObj, RWRIST, gunGrip());
 }
 function loadClip() {

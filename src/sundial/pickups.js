@@ -1,7 +1,7 @@
 // Floating pickups on nav nodes: weapons, ammo, health, armour. Walk over one to take it.
 import * as THREE from 'three';
 import { parseModel } from './model.js';
-import { modelToGroup } from './build.js';
+import { modelToGroup, hideFlash } from './build.js';
 import { WEAPONS, SFX } from './weapons.js';
 
 export class Pickups {
@@ -38,6 +38,7 @@ export class Pickups {
     else proto = this.protos[k.kind];
     if (!proto || !proto.m) return;
     const g = modelToGroup(proto.m, proto.tex, { lit: true });
+    if (k.kind === 'weapon') hideFlash(g);
     g.scale.setScalar((proto.m.scale || 1) * (k.kind === 'weapon' ? 1.1 : 1));
     g.position.set(pos.x, pos.y + 0.5, pos.z);
     this.scene.add(g);

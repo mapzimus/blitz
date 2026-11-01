@@ -95,6 +95,17 @@ export function modelToGroup(model, texSrc, opts = {}) {
   return grp;
 }
 
+// Gun models carry their muzzle flash as big alpha-textured quads. Returns those meshes (hidden).
+export function hideFlash(group) {
+  const flash = [];
+  group.traverse(o => {
+    if (!o.isMesh) return;
+    const alpha = o.material.every(m => m.map && m.map.hasAlpha);
+    if (o.userData.stream === 2 || (alpha && o.geometry.boundingSphere.radius > 0.25)) { o.visible = false; flash.push(o); }
+  });
+  return flash;
+}
+
 export function mapToGroup(map, texSrc) {
   const grp = new THREE.Group();
   const solid = [];
