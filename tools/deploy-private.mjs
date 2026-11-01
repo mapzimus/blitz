@@ -1,7 +1,7 @@
 // Deploy the committed tree (and nothing else from disk) to the private Cloudflare Pages project.
 // Usage: node tools/deploy-private.mjs [project-name]
 import { execSync } from 'node:child_process'; import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
-const project = process.argv[2] || 'backroom';
+const project = (process.argv[2] || 'backroom').replace(/[^\w-]/g, '');
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'backroom-deploy-'));
 const zip = path.join(tmp, 'tree.zip');

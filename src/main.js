@@ -275,7 +275,9 @@ function finalScreen() {
   title();
   // Dev: ?pack=http://127.0.0.1:8779/BASSETS.ZIP loads the archive over local HTTP byte ranges.
   const packUrl = new URLSearchParams(location.search).get('pack');
-  if (packUrl && (/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//.test(packUrl) || /^[\w./-]+$/.test(packUrl))) {
+  // Only this site's own origin or a loopback dev server may supply the archive.
+  const packOk = (() => { try { const u = new URL(packUrl, location.href); return u.origin === location.origin || /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(u.origin); } catch { return false; } })();
+  if (packUrl && packOk) {
     try { await assets.openUrl(packUrl); assets.source = 'local server'; assetStatus = await describeAssets(); title(); return; } catch (e) { console.warn('pack url', e); }
   }
   // Private deployment: the site itself serves the archive (behind the host's login) at /pack/BASSETS.ZIP.
