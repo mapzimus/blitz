@@ -6,7 +6,7 @@ export function initTouch(force = false) {
   const coarse = force || (navigator.maxTouchPoints > 0 && matchMedia('(pointer: coarse)').matches);
   if (!coarse) return false;
   touch.active = true;
-  const root = document.createElement('div'); root.id = 'touch';
+  const root = document.createElement('div'); root.id = 'touch'; root.hidden = true;
   root.innerHTML = `
     <div class="tz left"><div class="stick"><div class="knob"></div></div></div>
     <div class="tz right"></div>

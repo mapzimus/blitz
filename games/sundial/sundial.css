@@ -4,7 +4,23 @@
 html,body{height:100%;background:#000;color:var(--chrome);font-family:Impact,"Arial Narrow Bold","Helvetica Neue",Arial,sans-serif;user-select:none;overflow:hidden}
 a{color:inherit;text-decoration:none}
 #gl{position:fixed;inset:0;width:100%;height:100%;display:block}
-#setup{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px 16px;background:radial-gradient(ellipse at 50% 30%,#102a2a 0%,#04070a 70%);overflow:auto}
+#setup{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:safe center;padding:24px 16px;background:radial-gradient(ellipse at 50% 30%,#102a2a 0%,#04070a 70%);overflow:auto;-webkit-overflow-scrolling:touch}
+@media (max-width:640px){
+  #setup{padding:56px 12px 24px}
+  h1{font-size:64px}
+  .tag{margin:8px 0 16px}
+  .panel{padding:14px 14px}
+  .panel .keys{display:none}
+  .row{gap:8px}
+  .btn{font-size:16px;padding:10px 16px;letter-spacing:2px}
+  select{min-width:0;flex:1}
+  #stats{font-size:26px;left:14px;top:10px;bottom:auto}
+  #wstats{font-size:22px;right:14px;top:40px;bottom:auto}
+  #wstats #wname{font-size:12px}
+  #score{font-size:16px;top:12px;right:auto;left:50%;transform:translateX(-50%)}
+  #msg{top:70px;font-size:16px}
+  #touch .tb[data-k=board]{top:auto;bottom:300px;right:28px}
+}
 h1{font-size:min(16vw,120px);line-height:.9;color:#fff;text-shadow:5px 5px 0 var(--red),10px 10px 0 #000;letter-spacing:6px;transform:skewX(-8deg)}
 h1 span{color:var(--teal)}
 .tag{font-size:clamp(14px,3vw,22px);letter-spacing:5px;color:#aab;margin:14px 0 28px}

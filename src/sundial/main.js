@@ -167,7 +167,7 @@ async function fetchPack(url) {
     try {
       const base = SITE_ROOT + 'pack/sundial/';
       const r = await fetch(base + 'gun.pak', { method: 'HEAD' });
-      if (r.ok) { SITE_PACK = base; status('Archives found on this site.'); }
+      if (r.ok) { SITE_PACK = base; status('Archives found on this site.'); $('#pickrow').hidden = true; $('#setup .panel > p').textContent = 'The archives load from this site. Pick a mode and arena, then ENTER.'; }
     } catch (e) { /* not on the private site */ }
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   }
@@ -782,6 +782,8 @@ function render(dt) {
   for (const t of tracers) { t.userData.t += dt; t.material.opacity = Math.max(0, 0.9 - t.userData.t * 8); if (t.userData.t > 0.15) { scene.remove(t); t.userData.done = true; } }
   if (tracers.some(t => t.userData.done)) tracers.splice(0, tracers.length, ...tracers.filter(t => !t.userData.done));
   if (hurt > 0) { hurt -= dt; $('#hud').style.boxShadow = `inset 0 0 ${80 * hurt * 4}px #d00`; } else $('#hud').style.boxShadow = '';
+  // The on-screen controls only exist while a match is running; otherwise they would sit over the menu.
+  if (touch.active) { const t = $('#touch'); const on = playing(); if (t && t.hidden === on) t.hidden = !on; }
   renderer.autoClear = true;
   if (world.sky) {
     skyCam.quaternion.copy(camera.quaternion); skyCam.fov = camera.fov; skyCam.updateProjectionMatrix();
