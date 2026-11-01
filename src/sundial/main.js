@@ -109,10 +109,10 @@ function resize() {
 addEventListener('resize', resize); resize();
 
 const world = { group: null, solid: [], pad: null, nodes: [], spawn: new THREE.Vector3(0, 2, 0), bots: null, proj: null, pickups: null, gun: null, gunTex: null, sky: null };
-const match = { limit: 10, time: 300, left: 300, over: false, started: 0 };
+const match = { mode: 'dm', limit: 10, time: 300, left: 300, over: false, started: 0, lives: 3, bag: null, holder: null, bagLimit: 60 };
 const player = {
   pos: new THREE.Vector3(), vel: new THREE.Vector3(), yaw: 0, pitch: 0,
-  eye: 1.5, radius: 0.35, grounded: false, hp: 100, armour: 0, kills: 0, deaths: 0, dead: false, respawnIn: 0,
+  eye: 1.5, radius: 0.35, grounded: false, hp: 100, armour: 0, kills: 0, deaths: 0, dead: false, respawnIn: 0, lives: 3, bagTime: 0, out: false,
   weapons: [], cur: 0, cool: 0, reloading: 0, zoom: false, name: 'YOU',
 };
 let sfx = new Sfx(null), anims = null, bind = null, music = null, track = -1;
@@ -176,7 +176,7 @@ function step(dt) {
   if (!world.group) return;
   if (player.dead) {
     player.respawnIn -= dt;
-    if (player.respawnIn <= 0 && (firing || keys.has('Space') || player.respawnIn < -4)) respawn();
+    if (!player.out && player.respawnIn <= 0 && (firing || keys.has('Space') || player.respawnIn < -4)) respawn();
   } else {
     fwd.set(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
     right.set(fwd.z, 0, -fwd.x);
@@ -229,6 +229,7 @@ function step(dt) {
   if (world.bots) world.bots.update(dt, player);
   if (world.proj) world.proj.update(dt, projectileHit);
   if (world.pickups && !player.dead) world.pickups.update(dt, player, takePickup);
+  modeTick(dt);
 
   // match clock
   if (!match.over) {
@@ -391,6 +392,42 @@ function splash(pos, radius, dmg, owner, direct) {
   }
 }
 
+// ---------- game modes ----------
+// dm: first to N kills. elim: N lives each, last one standing. bag: hold the bag; first to N seconds.
+function modeTick(dt) {
+  if (match.over || match.mode !== 'bag' || !match.bag) return;
+  const bag = match.bag;
+  const t = performance.now() / 1000;
+  if (!match.holder) {
+    bag.visible = true; bag.rotation.y = t * 2; bag.position.y = bag.userData.y + Math.sin(t * 2) * 0.1;
+    // whoever reaches it first
+    if (!player.dead && player.pos.distanceTo(bag.position) < 1.1) grabBag('player');
+    else for (const b of world.bots.list) if (!b.dead && b.group.position.distanceTo(bag.position) < 1.1) { grabBag(b); break; }
+    for (const b of world.bots.list) b.goal = world.bots.nearestNode(bag.position);
+  } else {
+    bag.visible = false;
+    if (match.holder === 'player') { player.bagTime += dt; if (player.bagTime >= match.bagLimit) endMatch(); }
+    else { match.holder.bagTime = (match.holder.bagTime || 0) + dt; if (match.holder.bagTime >= match.bagLimit) endMatch(); }
+    // everyone else chases the holder
+    const hp = match.holder === 'player' ? player.pos : match.holder.group.position;
+    for (const b of world.bots.list) b.goal = b === match.holder ? null : world.bots.nearestNode(hp);
+  }
+  updateHud();
+}
+function grabBag(who) {
+  match.holder = who;
+  const name = who === 'player' ? 'YOU HAVE' : `${who.name.toUpperCase()} HAS`;
+  msg(`${name} THE BAG`, 2000);
+  sfx.play(SFX.armour, { volume: 0.7 });
+}
+function dropBag(pos) {
+  if (!match.bag || !match.holder) return;
+  match.holder = null;
+  match.bag.position.copy(pos); match.bag.position.y += 0.5; match.bag.userData.y = match.bag.position.y;
+  msg('THE BAG IS LOOSE', 1500);
+}
+function bagScore(who) { return who === 'player' ? player.bagTime : (who.bagTime || 0); }
+
 // ---------- damage, death, score ----------
 function damagePlayer(dmg, by) {
   if (player.dead || dmg <= 0 || player.god) return;
@@ -405,8 +442,15 @@ function die(by) {
   if (by && by.kills !== undefined) { by.kills++; }
   if (dieVoices.length) sfx.play(pick(dieVoices), { volume: 0.7 });
   msg(by && by.name ? `SPLIT BY ${by.name.toUpperCase()}` : 'YOU WERE SPLIT', 2500);
+  if (match.mode === 'bag' && match.holder === 'player') dropBag(player.pos);
+  if (match.mode === 'elim') { player.lives--; if (player.lives <= 0) { player.out = true; msg('ELIMINATED', 3000); } }
   updateHud(); updateBoard();
-  if (by && by.kills >= match.limit) endMatch();
+  if (match.mode === 'dm' && by && by.kills >= match.limit) endMatch();
+  if (match.mode === 'elim') checkElimination();
+}
+function checkElimination() {
+  const alive = world.bots.list.filter(b => !b.out).length + (player.out ? 0 : 1);
+  if (alive <= 1) endMatch();
 }
 function respawn() {
   const nodes = world.spawns || world.nodes;
@@ -418,8 +462,11 @@ function respawn() {
   updateHud();
 }
 function onBotKilled(bot, by) {
-  if (by === 'player') { player.kills++; msg(`SPLIT  ${bot.name.toUpperCase()}`); if (dieVoices.length) sfx.play(pick(dieVoices), { pos: bot.group.position, listener: camera.position }); if (player.kills >= match.limit) endMatch(); }
-  else if (by && by.kills !== undefined) { by.kills++; if (by.kills >= match.limit) endMatch(); }
+  if (by === 'player') { player.kills++; msg(`SPLIT  ${bot.name.toUpperCase()}`); if (dieVoices.length) sfx.play(pick(dieVoices), { pos: bot.group.position, listener: camera.position }); }
+  else if (by && by.kills !== undefined) by.kills++;
+  if (match.mode === 'bag' && match.holder === bot) dropBag(bot.group.position);
+  if (match.mode === 'elim') { bot.lives = (bot.lives ?? match.lives) - 1; if (bot.lives <= 0) bot.out = true; checkElimination(); }
+  if (match.mode === 'dm') { if (by === 'player' && player.kills >= match.limit) endMatch(); else if (by && by.kills >= match.limit) endMatch(); }
   updateHud(); updateBoard();
 }
 function onBotShoot(bot, w, from, target, hits) {
@@ -449,20 +496,30 @@ function updateHud() {
   const w = curWeapon();
   $('#wname').textContent = w ? slotName(w.key).toUpperCase() : '';
   $('#clip').textContent = w ? w.clip : 0; $('#ammo').textContent = w ? w.ammo : 0;
-  $('#kills').textContent = player.kills; $('#limit').textContent = match.limit;
+  if (match.mode === 'bag') { $('#kills').textContent = Math.floor(player.bagTime); $('#limit').textContent = match.bagLimit + 's'; }
+  else if (match.mode === 'elim') { $('#kills').textContent = `${player.lives} LIVES`; $('#limit').textContent = `${world.bots ? world.bots.list.filter(b => !b.out).length + (player.out ? 0 : 1) : 0} LEFT`; }
+  else { $('#kills').textContent = player.kills; $('#limit').textContent = match.limit; }
+}
+// Score rows for the board and the end screen, by mode.
+function standings() {
+  const me = { name: player.name, kills: player.kills, deaths: player.deaths, me: true, lives: player.lives, out: player.out, bag: player.bagTime };
+  const rows = [me, ...(world.bots ? world.bots.list.map(b => ({ name: b.name, kills: b.kills, deaths: b.deaths, lives: b.lives ?? match.lives, out: !!b.out, bag: b.bagTime || 0 })) : [])];
+  if (match.mode === 'bag') { rows.forEach(r => (r.score = Math.floor(r.bag) + 's')); rows.sort((a, b) => b.bag - a.bag); }
+  else if (match.mode === 'elim') { rows.forEach(r => (r.score = r.out ? 'out' : `${r.lives} lives`)); rows.sort((a, b) => (b.out ? -1 : b.lives) - (a.out ? -1 : a.lives) || b.kills - a.kills); }
+  else { rows.forEach(r => (r.score = r.kills)); rows.sort((a, b) => b.kills - a.kills || a.deaths - b.deaths); }
+  return rows;
 }
 function updateBoard() {
-  const rows = [{ name: player.name, kills: player.kills, deaths: player.deaths, me: true }, ...(world.bots ? world.bots.list.map(b => ({ name: b.name, kills: b.kills, deaths: b.deaths })) : [])];
-  rows.sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
-  $('#board').innerHTML = '<table>' + rows.map(r => `<tr class="${r.me ? 'me' : ''}"><td>${r.name}</td><td>${r.deaths}</td><td>${r.kills}</td></tr>`).join('') + '</table>';
+  const rows = standings();
+  $('#board').innerHTML = '<table>' + rows.map(r => `<tr class="${r.me ? 'me' : ''}"><td>${r.name}</td><td>${r.deaths}</td><td>${r.score}</td></tr>`).join('') + '</table>';
 }
 function endMatch() {
   if (match.over) return;
   match.over = true; firing = false;
   updateBoard();
-  const rows = [{ name: player.name, kills: player.kills }, ...world.bots.list.map(b => ({ name: b.name, kills: b.kills }))].sort((a, b) => b.kills - a.kills);
-  const win = rows[0].name === player.name;
-  $('#end').innerHTML = `${win ? 'YOU WIN' : rows[0].name.toUpperCase() + ' WINS'}<div class="fine">${rows.map(r => `${r.name} ${r.kills}`).join(' &nbsp;·&nbsp; ')}</div><div class="fine">Press Enter for the menu</div>`;
+  const rows = standings();
+  const win = rows[0].me;
+  $('#end').innerHTML = `${win ? 'YOU WIN' : rows[0].name.toUpperCase() + ' WINS'}<div class="fine">${rows.map(r => `${r.name} ${r.score}`).join(' &nbsp;·&nbsp; ')}</div><div class="fine">Press Enter for the menu</div>`;
   $('#end').hidden = false; $('#board').hidden = false;
   if (document.exitPointerLock) document.exitPointerLock();
 }
@@ -536,8 +593,21 @@ async function enter(levelName) {
   world.bots = new Bots({ pak, gun: world.gun, texSrc, gunTex: world.gunTex, pad: world.pad, scene, solid: world.solid, anims, bind, onShoot: onBotShoot, onBotKilled, names: BOT_NAMES.slice().sort(() => Math.random() - 0.5) });
   world.bots.spawn(Math.min(parseInt($('#botcount').value) || 4, Math.max(1, world.bots.models.length * 2)));
 
-  match.limit = parseInt($('#killlimit').value) || 10; match.left = match.time; match.over = false;
-  player.kills = 0; player.deaths = 0;
+  match.mode = $('#mode').value; match.limit = parseInt($('#killlimit').value) || 10; match.left = match.time; match.over = false;
+  match.lives = match.mode === 'elim' ? Math.max(1, Math.min(9, Math.round(match.limit / 3))) : 3;
+  match.bagLimit = match.mode === 'bag' ? match.limit * 6 : 60;
+  match.holder = null; if (match.bag) { scene.remove(match.bag); match.bag = null; }
+  if (match.mode === 'bag') {
+    const bagName = pak.list('ob/bag1/')[0] || pak.list('ob/pickups/')[0];
+    const bm = bagName ? parseModel(pak.get(bagName)) : null;
+    const bag = bm ? modelToGroup(bm, texSrc, { lit: true }) : new THREE.Mesh(new THREE.SphereGeometry(0.3), new THREE.MeshBasicMaterial({ color: 0xffb03b }));
+    if (bm) bag.scale.setScalar(bm.scale || 1);
+    const spot = pick(world.itemSpots.length ? world.itemSpots : world.nodes);
+    bag.position.copy(spot.pos); bag.position.y += 0.5; bag.userData.y = bag.position.y;
+    scene.add(bag); match.bag = bag;
+  }
+  player.kills = 0; player.deaths = 0; player.lives = match.lives; player.bagTime = 0; player.out = false;
+  for (const b of world.bots.list) { b.lives = match.lives; b.bagTime = 0; b.out = false; b.goal = null; }
   respawn(); updateBoard();
   $('#setup').hidden = true; $('#hud').hidden = false; $('#end').hidden = true;
   status(`${pickedFiles.size || ''} ready.`);

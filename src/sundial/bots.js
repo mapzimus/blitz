@@ -77,6 +77,7 @@ export class Bots {
   }
 
   respawn(b) {
+    if (b.out) { b.group.visible = false; b.dead = 999; return; }
     b.node = this.nodeList[Math.floor(Math.random() * this.nodeList.length)];
     b.target = b.node.next[Math.floor(Math.random() * b.node.next.length)];
     b.group.position.copy(b.node.pos);
@@ -133,6 +134,7 @@ export class Bots {
       const g = b.group;
       if (b.rig) b.rig.update(dt);
       if (b.dead) {
+        if (b.out) { if (b.dead < 999) { b.dead += dt; if (b.dead > 3) g.position.y -= dt * 0.8; if (b.dead > 4.5) this.respawn(b); } continue; }
         b.dead += dt;
         if (!b.rig) g.rotation.x = Math.min(Math.PI / 2, b.dead * 4);
         if (b.dead > 3) g.position.y -= dt * 0.8;
@@ -161,8 +163,10 @@ export class Bots {
       } else {
         b.cool = Math.max(b.cool, 0.4);
         b.lastSeen = (b.lastSeen || 0) + dt;
-        // Hunt the last known position for a while, then go back to roaming.
-        if (b.hunt && b.lastSeen < 8) this.walk(b, dt, true); else { b.hunt = null; this.walk(b, dt); }
+        // Hunt the last known position for a while, else head for the mode's goal, else roam.
+        if (b.hunt && b.lastSeen < 8) this.walk(b, dt, true);
+        else if (b.goal) { b.hunt = b.goal; this.walk(b, dt, true); }
+        else { b.hunt = null; this.walk(b, dt); }
       }
     }
   }
