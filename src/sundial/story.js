@@ -123,6 +123,13 @@ export class Story {
       const kind = /cctv|cam/i.test(a.path) ? 'camera' : /gun/i.test(a.path) ? 'turret' : 'anim';
       const cam = { rec: a, group: g, pos, kind, yaw0: (nd ? nd.yaw : 0) * DEG, t: Math.random() * 6, on: true, hp: 40, dead: false, name: this.str(a.text), seen: 0, cool: 0, idx: ai };
       g.userData.camera = cam;
+      // Status light on the lens: slow red blink while watching, solid and larger while it has you.
+      if (kind !== 'anim') {
+        const light = new THREE.Sprite(new THREE.SpriteMaterial({ color: 0xff2a1a, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+        light.scale.setScalar(0.18);
+        this.group.add(light);
+        cam.light = light;
+      }
       this.cameras[ai] = cam;
       if (kind !== 'anim') this.world.solid.push(...g.children);
     });
@@ -304,7 +311,15 @@ export class Story {
     }
     // cameras and turrets
     for (const c of this.cameras) {
-      if (!c || c.dead) continue;
+      if (!c) continue;
+      if (c.light) {
+        const f = new THREE.Vector3(Math.sin(c.group.rotation.y), 0, Math.cos(c.group.rotation.y));
+        c.light.position.copy(c.pos).addScaledVector(f, 0.32); c.light.position.y += 0.12;
+        const watching = c.on && !c.dead;
+        c.light.visible = watching;
+        if (watching) { const alarm = c.seen > 0 || c.cool > 4; c.light.material.opacity = alarm ? 1 : 0.35 + 0.65 * (Math.sin(c.t * 5) > 0.6 ? 1 : 0); c.light.scale.setScalar(alarm ? 0.32 : 0.18); }
+      }
+      if (c.dead) continue;
       c.t += dt;
       if (c.kind === 'camera' && c.on) {
         c.group.rotation.y = c.yaw0 + Math.sin(c.t * 0.6) * 0.8;
@@ -316,7 +331,17 @@ export class Story {
           const to = pe.clone().sub(eye); const dist = to.length();
           if (dist < 16) {
             const flat = to.clone().setY(0).normalize();
-            if ((facing.dot(flat) > 0.5 || dist < 3) && this.bots.canSee(eye, pe)) { c.seen += dt; if (c.seen > 0.6) { c.seen = 0; c.cool = 6; this.emit('seen', { camera: c, name: c.name }); } }
+            if ((facing.dot(flat) > 0.5 || dist < 3) && this.bots.canSee(eye, pe)) {
+              c.seen += dt;
+              if (c.seen > 0.6) {
+                c.seen = 0; c.cool = 6;
+                // Being filmed brings the guards near the camera, as in the original's security system.
+                this.msg(`SPOTTED BY ${(c.name || 'SECURITY CAMERA').toUpperCase()}`, 2500);
+                this.hooks.sfx && this.hooks.sfx('alarm');
+                for (const b of this.bots.list) if (b.story && !b.dead && !b.alert && b.group.position.distanceTo(c.pos) < 30) this.bots.alertBot(b, 8, player.pos);
+                this.emit('seen', { camera: c, name: c.name });
+              }
+            }
             else c.seen = Math.max(0, c.seen - dt);
           }
         }

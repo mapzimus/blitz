@@ -84,16 +84,33 @@ export class Bots {
     this.scene.add(g);
     this.list.push(b);
     b.node = this.nearestNode(pos); b.target = b.node;
+    // Guards the tables leave without a route still walk a short beat around their post, so a level
+    // never looks frozen; they pause longer at each end than routed patrols do.
+    if ((!route || route.length < 2) && b.node) {
+      const beat = [b.node]; let cur = b.node;
+      for (let i = 0; i < 3; i++) {
+        const opts = cur.next.filter(n => !beat.includes(n) && n.pos.distanceTo(b.home) < 12 && Math.abs(n.pos.y - b.home.y) < 1.5);
+        if (!opts.length) break;
+        cur = pick(opts); beat.push(cur);
+      }
+      if (beat.length > 1) { b.route = beat.concat(beat.slice(1, -1).reverse()); b.beat = true; }
+    }
     this.arm(b, weapon && WEAPONS[weapon] ? weapon : pick(BOT_WEAPONS));
     this.setAnim(b, 'standpose_m0');
     return b;
   }
   remove(b) { this.scene.remove(b.group); this.list = this.list.filter(x => x !== b); }
-  // Wake a guard up: it and anyone close by start hunting.
-  alertBot(b, radius = 12) {
+  // Wake a guard up: it and anyone close by start hunting toward where the trouble is (the player by default).
+  alertBot(b, radius = 12, at = null) {
     if (!b.story || b.alert) return;
-    b.alert = true;
-    for (const o of this.list) if (o.story && !o.alert && !o.dead && o.group.position.distanceTo(b.group.position) < radius) o.alert = true;
+    const where = at || (this.player && this.player.pos);
+    const wake = o => { o.alert = true; o.lastSeen = 0; if (where) o.hunt = this.nearestNode(where); };
+    wake(b);
+    for (const o of this.list) if (o.story && !o.alert && !o.dead && o.group.position.distanceTo(b.group.position) < radius) wake(o);
+  }
+  // A gunshot at `pos`: guards within earshot come running. Silenced weapons carry only a few metres.
+  hearShot(pos, radius) {
+    for (const b of this.list) if (b.story && !b.dead && !b.alert && b.group.position.distanceTo(pos) < radius) this.alertBot(b, 8, pos);
   }
 
   setAnim(b, name, opts) {
@@ -170,7 +187,7 @@ export class Bots {
     if (!player.dead) {
       const pe = player.pos.clone(); pe.y += player.eye;
       const d = eye.distanceTo(pe);
-      if (d < 35 && this.canSee(eye, pe)) best = { who: 'player', pos: pe, dist: d, moving: player.vel.lengthSq() > 1 };
+      if (d < (b.story ? 45 : 35) && this.canSee(eye, pe)) best = { who: 'player', pos: pe, dist: d, moving: player.vel.lengthSq() > 1 };
     }
     for (const o of this.list) {
       if (o === b || o.dead || (b.story && o.story)) continue;
@@ -182,6 +199,7 @@ export class Bots {
   }
 
   update(dt, player) {
+    this.player = player;
     const eye = new THREE.Vector3();
     const skill = this.skill || 1; // 0.6 easy .. 1.4 hard
     for (const b of this.list) {
@@ -230,6 +248,9 @@ export class Bots {
       } else {
         b.cool = Math.max(b.cool, 0.4);
         b.lastSeen = (b.lastSeen || 0) + dt;
+        // An alerted guard that lost sight of the player keeps closing in: every few seconds it
+        // re-reads where the player is (the base knows an intruder is about), instead of wandering.
+        if (b.story && b.alert && !player.dead && (!b.hunt || b.lastSeen > 5)) { b.hunt = this.nearestNode(player.pos); b.lastSeen = 0.01; }
         // Hunt the last known position for a while, else head for the mode's goal, else go shopping, else roam.
         if (b.hunt && b.lastSeen < 8) this.walk(b, dt, true);
         else if (b.goal) { b.hunt = b.goal; this.walk(b, dt, true); }
@@ -247,7 +268,7 @@ export class Bots {
       const tp = b.route[b.routeIdx % b.route.length].pos;
       const to = tp.clone().sub(g.position); to.y = 0;
       const d = to.length();
-      if (d < 0.4) { b.routeIdx++; b.wait = 0.8 + Math.random() * 2; return; }
+      if (d < 0.4) { b.routeIdx++; b.wait = b.beat ? 2 + Math.random() * 4 : 0.8 + Math.random() * 2; return; }
       to.normalize();
       g.position.addScaledVector(to, Math.min(d, b.speed * 0.55 * dt));
       const yaw = Math.atan2(to.x, to.z);

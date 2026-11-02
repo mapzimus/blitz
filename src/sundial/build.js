@@ -52,10 +52,22 @@ export function streamToMesh(stream, materials, texSrc, opts = {}) {
     }
     g.setAttribute('color', new THREE.BufferAttribute(c, 3));
   }
-  g.setIndex(new THREE.BufferAttribute(stream.index, 1));
+  // The disc splits a stream into many strip batches, often several per texture. Reorder the index buffer
+  // so each material's triangles are contiguous: one draw call per material instead of one per batch.
+  const byMat = new Map();
+  for (const grp of stream.groups) { if (!byMat.has(grp.mat)) byMat.set(grp.mat, []); byMat.get(grp.mat).push(grp); }
+  const index = new stream.index.constructor(stream.index.length);
+  const merged = [];
+  let at = 0;
+  for (const [mat, grps] of byMat) {
+    const start = at;
+    for (const grp of grps) { index.set(stream.index.subarray(grp.start, grp.start + grp.count), at); at += grp.count; }
+    merged.push({ mat, start, count: at - start });
+  }
+  g.setIndex(new THREE.BufferAttribute(at === stream.index.length ? index : index.subarray(0, at), 1));
   const mats = [];
   const matIndex = new Map();
-  for (const grp of stream.groups) {
+  for (const grp of merged) {
     const m = materials[grp.mat] || { id: 0xffffffff, wrapX: 0, wrapY: 0, flags: 0 };
     let mi = matIndex.get(grp.mat);
     if (mi === undefined) {
@@ -101,7 +113,9 @@ export function hideFlash(group) {
   group.traverse(o => {
     if (!o.isMesh) return;
     const alpha = o.material.every(m => m.map && m.map.hasAlpha);
-    if (o.userData.stream === 2 || (alpha && o.geometry.boundingSphere.radius > 0.25)) { o.visible = false; flash.push(o); }
+    // Flash sprites live in the transparent stream, or are alpha cards in the overlay stream (small ones on
+    // silenced pistols), or are large alpha cards anywhere.
+    if (o.userData.stream === 2 || (alpha && (o.userData.stream === 1 || o.geometry.boundingSphere.radius > 0.25))) { o.visible = false; flash.push(o); }
   });
   return flash;
 }

@@ -183,7 +183,8 @@ async function fetchPack(url) {
 const canvas = $('#gl');
 initTouch(Q.get('touch') === '1');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+// Phones render at up to 1.5x density: their 3x screens would otherwise draw four times the pixels for little visible gain.
+renderer.setPixelRatio(Math.min(devicePixelRatio, touch.active ? 1.5 : 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05070c);
@@ -241,26 +242,34 @@ addEventListener('keyup', e => { keys.delete(e.code); if (e.code === 'Tab') $('#
 addEventListener('wheel', e => { if (playing()) selectWeapon(player.cur + (e.deltaY > 0 ? 1 : -1)); });
 addEventListener('contextmenu', e => e.preventDefault());
 
-let locked = false, noLock = false, dragging = false;
-document.addEventListener('pointerlockchange', () => { locked = document.pointerLockElement === canvas; });
-async function grabMouse() {
-  if (noLock || locked || touch.active) return;
-  try { await canvas.requestPointerLock(); } catch (e) { noLock = true; msg('HOLD MOUSE BUTTON TO LOOK', 3000); }
+let locked = false, noLock = false, dragging = false, dragMoved = 0;
+document.addEventListener('pointerlockchange', () => { locked = document.pointerLockElement === canvas; if (!locked && playing() && !touch.active && !noLock) msg('CLICK TO AIM', 2500); });
+// Browsers only grant the mouse lock inside a click. A request made after a level finishes loading is
+// refused, so that is not treated as "no lock available": the next click on the game asks again.
+// Only a refusal during a real click (embedded frames, locked-down browsers) switches to hold-to-look.
+async function grabMouse(fromClick = false) {
+  if (noLock || locked || touch.active || !canvas.requestPointerLock) { if (!canvas.requestPointerLock) noLock = true; return; }
+  try { await canvas.requestPointerLock(); }
+  catch (e) { if (fromClick) { noLock = true; msg('HOLD MOUSE BUTTON TO LOOK', 3000); } else msg('CLICK TO AIM', 3000); }
 }
 const playing = () => world.group && $('#setup').hidden && !match.over;
 canvas.addEventListener('mousedown', e => {
   if (!playing()) return;
   if (e.button === 2) { player.zoom = true; return; }
-  if (!locked && !noLock) grabMouse(); else if (locked) firing = true; else dragging = true;
+  if (locked) { firing = true; fireOnce(); return; } // fire on press for every weapon; automatics keep going in step()
+  if (!noLock) { grabMouse(true); return; }        // first click takes the mouse, it does not shoot
+  dragging = true; dragMoved = 0;
 });
 canvas.addEventListener('mouseup', e => { if (e.button === 2) player.zoom = false; else { firing = false; dragging = false; } });
-canvas.addEventListener('click', () => { if (playing() && noLock && !dragging) fireOnce(); });
+// Hold-to-look fallback: a click that did not turn the view is a shot.
+canvas.addEventListener('click', () => { if (playing() && noLock && dragMoved < 6) fireOnce(); });
 // Raw look input is gathered here and applied once per frame in step(), so turning speed does not
 // depend on how often the browser delivers mouse events. Mouse right turns right, mouse up looks up.
 const lookAcc = { x: 0, y: 0 };
 addEventListener('mousemove', e => {
   if (!playing() || !(locked || dragging)) return;
   lookAcc.x += e.movementX; lookAcc.y += e.movementY;
+  if (dragging) dragMoved += Math.abs(e.movementX) + Math.abs(e.movementY);
 });
 function applyLook(dt, dx, dy) {
   const k = (player.zoom ? 0.0009 : 0.0024) * (player.sens || 1);
@@ -277,6 +286,58 @@ const ray = new THREE.Raycaster();
 const DOWN = new THREE.Vector3(0, -1, 0);
 function castDown(from, maxDist) { ray.set(from, DOWN); ray.far = maxDist; const h = ray.intersectObjects(world.solid, false); return h.length ? h[0] : null; }
 function castDir(from, dir, maxDist) { ray.set(from, dir); ray.far = maxDist; const h = ray.intersectObjects(world.solid, false); return h.length ? h[0] : null; }
+
+// ---- player collision: a 0.35 m cylinder probed at knee, waist and head height ----
+const _sph = new THREE.Sphere();
+// Only meshes whose bounds come near the player are tested, so the many props cost nothing far away.
+function nearSolid(pos, r) {
+  const out = [];
+  for (const m of world.solid) {
+    if (!m.geometry.boundingSphere) m.geometry.computeBoundingSphere();
+    _sph.copy(m.geometry.boundingSphere).applyMatrix4(m.matrixWorld);
+    if (_sph.distanceToPoint(pos) < r + 1.5) out.push(m);
+  }
+  return out;
+}
+const PROBE = [0.35, 0.9, 1.4];
+// Nearest wall-like hit (not floor, ceiling or a step) along dir from any probe height.
+function wallHit(pos, dir, dist, list) {
+  let best = null;
+  for (const h of PROBE) {
+    ray.set(_v1.copy(pos).setY(pos.y + h), dir); ray.far = dist;
+    for (const hit of ray.intersectObjects(list, false)) {
+      const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
+      if (Math.abs(n.y) > 0.7) continue; // floors, ramps and ceilings are handled by the ground check
+      if (n.dot(dir) > 0) n.negate();
+      n.y = 0; n.normalize();
+      if (!best || hit.distance < best.distance) best = { distance: hit.distance, n };
+      break;
+    }
+  }
+  return best;
+}
+const _v1 = new THREE.Vector3();
+// Move up to the first wall, slide the rest along it, repeat for up to three walls (corners).
+function slideMove(move, list) {
+  for (let i = 0; i < 3; i++) {
+    const len = move.length(); if (len < 1e-5) return;
+    const dir = move.clone().divideScalar(len);
+    const hit = wallHit(player.pos, dir, len + player.radius, list);
+    if (!hit) { player.pos.add(move); return; }
+    const advance = Math.max(0, hit.distance - player.radius);
+    player.pos.addScaledVector(dir, Math.min(advance, len));
+    move.multiplyScalar(Math.max(0, 1 - advance / len));
+    move.addScaledVector(hit.n, -move.dot(hit.n)); // keep only the part along the wall
+  }
+}
+// Push out of anything closer than the radius in eight directions, so seams and corners cannot be squeezed through.
+const RING = [...Array(8)].map((_, i) => new THREE.Vector3(Math.cos(i * Math.PI / 4), 0, Math.sin(i * Math.PI / 4)));
+function depenetrate(list) {
+  for (const dir of RING) {
+    const hit = wallHit(player.pos, dir, player.radius, list);
+    if (hit) player.pos.addScaledVector(hit.n, player.radius - hit.distance + 0.005);
+  }
+}
 
 const tmp = new THREE.Vector3(), fwd = new THREE.Vector3(), right = new THREE.Vector3();
 function step(dt) {
@@ -311,21 +372,12 @@ function step(dt) {
       for (const k of touch.taps.splice(0)) { if (k === 'next') selectWeapon(player.cur + 1); if (k === 'reload') reload(); if (k === 'board') { if (world.story) $('#objectives').hidden = !$('#objectives').hidden; else $('#board').hidden = !$('#board').hidden; } if (k === 'fire') fireOnce(); }
     }
     const move = new THREE.Vector3(player.vel.x, 0, player.vel.z).multiplyScalar(dt);
-    if (move.lengthSq() > 0) {
-      const dir = move.clone().normalize();
-      for (const h of [0.4, 1.2]) {
-        const from = player.pos.clone(); from.y += h;
-        const hit = castDir(from, dir, move.length() + player.radius);
-        if (hit) {
-          const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
-          if (n.dot(dir) > 0) n.negate();
-          n.y = 0; n.normalize();
-          move.sub(n.multiplyScalar(move.dot(n)));
-          break;
-        }
-      }
-    }
-    player.pos.add(move);
+    const before = player.pos.clone();
+    const near = nearSolid(player.pos, 3 + move.length());
+    if (move.lengthSq() > 0) slideMove(move, near);
+    depenetrate(near);
+    // Never walk off the edge of the world: if there is no floor anywhere below, undo the step.
+    if (player.grounded && !castDown(player.pos.clone().setY(player.pos.y + 1), 60)) { player.pos.x = before.x; player.pos.z = before.z; player.vel.x = player.vel.z = 0; }
     player.pos.y += player.vel.y * dt;
     const from = player.pos.clone(); from.y += 1.0;
     const hit = castDown(from, 1.3);
@@ -450,6 +502,7 @@ function fireOnce() {
   recoil = d.kind === 'beam' ? 0.008 : Math.min(0.06, 0.012 + d.dmg / 1500);
   flash.intensity = d.quiet ? 4 : 30; flash.position.copy(camera.position);
   sfx.play(d.sfx, { volume: d.quiet ? 0.45 : 0.8 });
+  if (world.bots) world.bots.hearShot(camera.position, d.quiet ? 6 : 30); // story guards come to the noise
   const dir = new THREE.Vector3(); camera.getWorldDirection(dir);
   const origin = camera.position.clone();
   if (d.kind === 'rocket' || d.kind === 'grenade') {
@@ -797,7 +850,7 @@ async function enter(levelName, opts = {}) {
     if (match.bag) { scene.remove(match.bag); match.bag = null; }
     player.kills = 0; player.deaths = 0; player.lives = 1; player.bagTime = 0; player.out = false;
     respawn(); updateBoard(); renderObjectives();
-    $('#setup').hidden = true; $('#hud').hidden = false; $('#end').hidden = true; $('#objectives').hidden = touch.active; // phones: TAB button shows the list
+    $('#setup').hidden = true; $('#hud').hidden = false; $('#hud').classList.add('story'); $('#end').hidden = true; $('#objectives').hidden = touch.active; // phones: TAB button shows the list
     status('Mission loaded.');
     grabMouse();
     msg(arenaName(n, 'st').toUpperCase(), 3000);
@@ -826,7 +879,7 @@ async function enter(levelName, opts = {}) {
   player.kills = 0; player.deaths = 0; player.lives = match.lives; player.bagTime = 0; player.out = false;
   for (const b of world.bots.list) { b.lives = match.lives; b.bagTime = 0; b.out = false; b.goal = null; }
   respawn(); updateBoard();
-  $('#setup').hidden = true; $('#hud').hidden = false; $('#end').hidden = true; $('#objectives').hidden = true;
+  $('#setup').hidden = true; $('#hud').hidden = false; $('#hud').classList.remove('story'); $('#end').hidden = true; $('#objectives').hidden = true;
   status(`${pickedFiles.size || ''} ready.`);
   grabMouse();
   msg(`${arenaName(n, levelName.endsWith('_st.pak') ? 'st' : 'ar').toUpperCase()}  ·  FIRST TO ${match.limit}`, 3000);
@@ -847,7 +900,7 @@ addEventListener('keyup', e => { if (e.code === 'KeyE' || e.code === 'KeyF') use
 const storyHooks = {
   msg: (t, ms) => msg(t, ms),
   hud: () => renderObjectives(),
-  sfx: name => { const map = { objective: SFX.armour, door: 'door_open', switch: SFX.pickup }; const k = map[name] || name; if (k) sfx.play(k, { volume: 0.6 }); },
+  sfx: name => { const map = { objective: SFX.armour, door: 'door_metal_slide16_01', switch: 'door_filing_cabinet16_01', alarm: 'gangster_alarm_loop22_02' }; const k = map[name] || name; if (k) sfx.play(k, { volume: 0.6 }); },
   end: (win, why) => missionEnd(win, why),
   player: () => player,
   useHeld: () => useKey.held || touch.held.has('use'),
@@ -952,7 +1005,7 @@ addEventListener('keydown', e => { if (e.code === 'Escape' && world.group && !ma
 $('#setup').addEventListener('click', e => { if (world.group && e.target === $('#setup')) { $('#setup').hidden = true; grabMouse(); } });
 
 // Debug handle for the console; tick() forces frames when the tab is not being painted.
-window.sundial = { scene, weaponScene, world, player, camera, match, get weapon() { return weapon; }, get music() { return music; }, fireOnce, giveWeapon, selectWeapon, playMusic, tick: (n = 1, dt = 1 / 60) => { for (let i = 0; i < n; i++) render(dt); } };
+window.sundial = { scene, weaponScene, world, player, camera, match, input: { get locked() { return locked; }, set locked(v) { locked = v; }, get noLock() { return noLock; } }, get weapon() { return weapon; }, get music() { return music; }, fireOnce, giveWeapon, selectWeapon, playMusic, tick: (n = 1, dt = 1 / 60) => { for (let i = 0; i < n; i++) render(dt); } };
 
 // ---------- loop ----------
 let last = performance.now();

@@ -5,21 +5,6 @@ html,body{height:100%;background:#000;color:var(--chrome);font-family:Impact,"Ar
 a{color:inherit;text-decoration:none}
 #gl{position:fixed;inset:0;width:100%;height:100%;display:block}
 #setup{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:safe center;padding:24px 16px;background:radial-gradient(ellipse at 50% 30%,#102a2a 0%,#04070a 70%);overflow:auto;-webkit-overflow-scrolling:touch}
-@media (max-width:640px){
-  #setup{padding:56px 12px 24px}
-  h1{font-size:64px}
-  .tag{margin:8px 0 16px}
-  .panel{padding:14px 14px}
-  .panel .keys{display:none}
-  .row{gap:8px}
-  .btn{font-size:16px;padding:10px 16px;letter-spacing:2px}
-  select{min-width:0;flex:1}
-  #stats{font-size:26px;left:14px;top:10px;bottom:auto}
-  #wstats{font-size:22px;right:14px;top:40px;bottom:auto}
-  #wstats #wname{font-size:12px}
-  #score{font-size:16px;top:12px;right:auto;left:50%;transform:translateX(-50%)}
-  #msg{top:70px;font-size:16px}
-  #touch .tb[data-k=board]{top:auto;bottom:300px;right:28px}
 }
 h1{font-size:min(16vw,120px);line-height:.9;color:#fff;text-shadow:5px 5px 0 var(--red),10px 10px 0 #000;letter-spacing:6px;transform:skewX(-8deg)}
 h1 span{color:var(--teal)}
@@ -58,10 +43,10 @@ select{font:16px Arial,sans-serif;padding:8px 10px;background:#1a1e2a;color:#fff
 #league .lg{margin:10px 0}
 #league h3{font-family:Impact,sans-serif;font-size:16px;letter-spacing:3px;color:var(--teal);margin:6px 0}
 #league .locked h3{color:#556}
-#league .match{display:block;width:100%;text-align:left;font:14px Arial,sans-serif;color:#dde;background:#141822;border:1px solid #333;padding:6px 10px;margin:3px 0;cursor:pointer}
-#league .match:hover:not([disabled]){border-color:var(--teal)}
-#league .match[disabled]{opacity:.4;cursor:default}
-#league .match small{color:#889;margin-left:8px}
+#league .match,#missions .match{display:block;width:100%;text-align:left;font:14px Arial,sans-serif;color:#dde;background:#141822;border:1px solid #333;padding:6px 10px;margin:3px 0;cursor:pointer}
+#league .match:hover:not([disabled]),#missions .match:hover:not([disabled]){border-color:var(--teal)}
+#league .match[disabled],#missions .match[disabled]{opacity:.4;cursor:default}
+#league .match small,#missions .match small{color:#889;margin-left:8px}
 #league .match span{display:inline-block;width:22px}
 #touch{position:fixed;inset:0;pointer-events:none;z-index:5;font-family:Impact,sans-serif;letter-spacing:2px;color:#fff;user-select:none;touch-action:none}
 #touch .tz{position:absolute;top:0;bottom:0;width:50%;pointer-events:auto}
@@ -87,5 +72,28 @@ select{font:16px Arial,sans-serif;padding:8px 10px;background:#1a1e2a;color:#fff
 #missions .match span{width:auto;margin-right:6px}
 #storybox summary{font-family:Impact,sans-serif;letter-spacing:3px;color:var(--teal);cursor:pointer}
 #brief{white-space:pre-wrap;font:13px/1.45 Arial,sans-serif;color:#bcd;max-height:220px;overflow:auto;margin:8px 0;padding:8px 10px;background:#0b0e16;border:1px solid #333}
-@media (max-width:640px){#objectives{right:8px;top:150px;max-width:62%;font-size:12px}}
 .medal.gold{color:#ffd24a}.medal.silver{color:#d8dde6}.medal.bronze{color:#d9924a}
+/* Story HUD: no kill counter, just the mission clock. */
+#hud.story #kills,#hud.story #limit,#hud.story #score .dim{display:none}
+/* Camera-light HUD notice */
+#msg.alarm{color:#ff5a4a}
+/* Phones. Kept last so these rules win over the desktop ones above. */
+@media (max-width:640px){
+  #setup{padding:56px 12px 24px}
+  h1{font-size:64px}
+  .tag{margin:8px 0 16px}
+  .panel{padding:14px 14px}
+  .panel .keys{display:none}
+  .row{gap:8px}
+  .btn{font-size:16px;padding:10px 16px;letter-spacing:2px}
+  select{min-width:0;flex:1}
+  #stats{font-size:26px;left:14px;top:10px;bottom:auto}
+  #stats #armour{margin-left:12px}
+  #score{font-size:15px;top:44px;left:14px;right:auto;transform:none}
+  #wstats{font-size:22px;right:14px;top:10px;bottom:auto}
+  #wstats #wname{font-size:12px}
+  #msg{top:96px;font-size:15px;padding:0 12px}
+  #objectives{right:8px;top:70px;max-width:62%;font-size:12px}
+  #board,#end{min-width:0;width:calc(100% - 24px);font-size:18px}
+  #touch .tb[data-k=board]{top:auto;right:auto;left:30px;bottom:180px}
+}
