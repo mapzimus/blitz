@@ -67,6 +67,7 @@ export async function buildStatic(assets, file, opts = {}) {
     for (const part of geo.parts) {
       const mat = await materialFor(assets, geo.materials[part.material] || {}, { ...opts, vertexColors: !!part.col, unlit: true });
       const mesh = new THREE.Mesh(partGeometry(part), mat);
+      mesh.userData.tex = (geo.materials[part.material] || {}).texture; mesh.userData.file = file;
       mesh.receiveShadow = true; mesh.castShadow = !!opts.castShadow;
       group.add(mesh);
     }
@@ -90,8 +91,22 @@ export async function buildField(assets) {
 }
 
 export async function buildStadium(assets, teamCode) {
-  // small_stadiums.dff holds one complete bowl per team, textured from small_stadiums.rtd
+  // The real per-team stadium: <tc>_snmaf (structure, afternoon) + <tc>_cnmaf (seating bowl) + jumbotron.
+  const full = `${teamCode}_snmaf.dff`;
+  if (assets.zip.has(full)) {
+    try {
+      const g = fieldFrame();
+      g.add(await buildStatic(assets, full, { hints: [`${teamCode}_snmAF.rtd`], doubleSide: true, transparent: true }));
+      const crowd = `${teamCode}_cnmaf.dff`;
+      if (assets.zip.has(crowd)) { const c = await buildStatic(assets, crowd, { hints: [`${teamCode}_snmAF.rtd`], doubleSide: true }); await crowdize(assets, c); g.add(c); g.userData.tick = c.userData.tick; }
+      const jumbo = `${teamCode}_jumbo.dff`;
+      if (assets.zip.has(jumbo)) { try { g.add(await buildStatic(assets, jumbo, { hints: [`${teamCode}_snmAF.rtd`, 'BlankScreen.rtd'], doubleSide: true })); } catch (e) { console.warn('jumbo', e); } }
+      return g;
+    } catch (e) { console.warn('full stadium failed, using the small bowl', e); }
+  }
+  // Fallback: small_stadiums.dff holds one low-detail bowl per team (it carries its own blurry field, so it sits lower)
   const g = fieldFrame();
+  g.position.y -= 0.05;
   const model = await assets.model('small_stadiums.dff');
   const want = `${teamCode}_small`;
   let ai = model.atomics.findIndex(a => model.geometries[a.geometry].materials.some(m => m.texture === want));
@@ -102,6 +117,41 @@ export async function buildStadium(assets, teamCode) {
     const mesh = new THREE.Mesh(partGeometry(part), mat); mesh.receiveShadow = true; g.add(mesh);
   }
   return g;
+}
+
+// Fill the seating bowl with the disc's fan sprite sheet (crowdaniC: 8 animation rows of seated fans).
+// Each bowl section carries a single 0..1 UV square, so UVs are re-projected by real size:
+// u runs around the bowl (one fan about 22 in), v up the rake (one row of fans per 40 in of rise).
+async function crowdize(assets, group) {
+  const t = await assets.findTexture('crowdanic', ['crowdaniC.rtd']);
+  if (!t) return;
+  const sheet = document.createElement('canvas'); sheet.width = t.width; sheet.height = t.height;
+  sheet.getContext('2d').putImageData(new ImageData(t.data, t.width, t.height), 0, 0);
+  const rows = 8, rh = t.height / rows;
+  const row = document.createElement('canvas'); row.width = t.width; row.height = rh;
+  const rc = row.getContext('2d');
+  const tex = new THREE.CanvasTexture(row); tex.colorSpace = THREE.SRGBColorSpace; tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.flipY = false; tex.anisotropy = 8;
+  const draw = f => { rc.clearRect(0, 0, row.width, rh); rc.drawImage(sheet, 0, f * rh, t.width, rh, 0, 0, t.width, rh); tex.needsUpdate = true; };
+  draw(0);
+  const fansAcross = 16, fanW = 22, rowRise = 40;
+  group.traverse(o => {
+    if (!o.isMesh) return;
+    const geo = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry;
+    const pos = geo.getAttribute('position'), uv = geo.getAttribute('uv');
+    for (let i = 0; i < pos.count; i += 3) {
+      let a0 = null;
+      for (let k = 0; k < 3; k++) {
+        const x = pos.getX(i + k), y = pos.getY(i + k), z = pos.getZ(i + k);
+        let a = Math.atan2(y, x); if (a0 === null) a0 = a; else { while (a - a0 > Math.PI) a -= 2 * Math.PI; while (a - a0 < -Math.PI) a += 2 * Math.PI; }
+        const r = Math.hypot(x, y);
+        uv.setXY(i + k, a * r / (fanW * fansAcross), -z / rowRise);
+      }
+    }
+    uv.needsUpdate = true; o.geometry = geo;
+    o.material.map = tex; o.material.color.setHex(0xffffff); o.material.vertexColors = false; o.material.needsUpdate = true;
+  });
+  let f = 0, acc = 0;
+  group.userData.tick = (dt, excite = 0) => { acc += dt * (4 + excite * 10); if (acc >= 1) { acc = 0; f = (f + 1) % rows; draw(f); } };
 }
 
 // Sky dome, both end zones, centre logo and goal posts from the disc.

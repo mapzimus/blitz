@@ -30,6 +30,7 @@ export class Hud {
 
   update(g, dt, showIcons) {
     this.q('.t0 .pts').textContent = g.score[0]; this.q('.t1 .pts').textContent = g.score[1];
+    this.q('.team.t0').classList.toggle('poss', g.poss === 0); this.q('.team.t1').classList.toggle('poss', g.poss === 1);
     this.q('.clock').textContent = mmss(g.clock);
     this.q('.qtr').textContent = g.quarter > g.rules.quarters ? 'OT' : ['', '1ST', '2ND', '3RD', '4TH'][g.quarter] || g.quarter + 'TH';
     const db = this.q('.downbar');

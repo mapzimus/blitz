@@ -393,7 +393,7 @@ function drain() {
     if (ev.type === 'banner') hud.showBanner(ev.text, ev.sub);
     if (ev.type === 'final') setTimeout(finalScreen, 2500);
     if (ev.type === 'sound' && ev.name === 'touchdown' && ring.length > 40) pendingReplay = ring.slice(-REPLAY_FRAMES);
-    if (ev.type === 'sound') { if (ev.name === 'bighit') scene.shake = 0.6; else if (ev.name === 'hit') scene.shake = 0.2; else if (ev.name === 'touchdown') scene.shake = 0.25; }
+    if (ev.type === 'sound') { if (ev.name === 'bighit') scene.shake = 0.6; else if (ev.name === 'hit') scene.shake = 0.2; else if (ev.name === 'touchdown') scene.shake = 0.25; if (ev.name === 'touchdown' || ev.name === 'fgood' || ev.name === 'bighit') scene.excite = 1; }
     sound.onEvent(ev, game);
   }
 }

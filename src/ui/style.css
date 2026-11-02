@@ -5,14 +5,16 @@ html,body{height:100%;touch-action:manipulation;-webkit-tap-highlight-color:tran
 #gl{position:absolute;inset:0;width:100%;height:100%;display:block}
 #hud,#overlay{position:absolute;inset:0;pointer-events:none}
 #overlay>*{pointer-events:auto}
-.scorebar{position:absolute;left:50%;top:10px;transform:translateX(-50%);display:flex;gap:0;align-items:stretch;filter:drop-shadow(0 4px 10px #000c)}
-.scorebar .team{display:flex;align-items:center;gap:10px;padding:6px 16px;font-size:28px;letter-spacing:1px;min-width:170px;color:#fff;text-shadow:2px 2px 0 #000}
-.scorebar .team .abbr{font-size:22px;opacity:.9}
-.scorebar .team .pts{font-size:34px;margin-left:auto;font-variant-numeric:tabular-nums}
-.scorebar .mid{background:linear-gradient(#2a2d36,#111318);padding:6px 18px;text-align:center;border-top:3px solid var(--amber);border-bottom:3px solid var(--amber);min-width:150px}
-.scorebar .mid .clock{font-size:30px;color:var(--amber);font-variant-numeric:tabular-nums}
-.scorebar .mid .qtr{font-size:14px;letter-spacing:2px;color:#bbb}
-.downbar{position:absolute;left:50%;top:76px;transform:translateX(-50%);background:#111318e6;border:2px solid #444;padding:4px 16px;font-size:20px;letter-spacing:1px;color:#fff;text-shadow:1px 1px 0 #000}
+.scorebar{position:absolute;left:18px;top:14px;display:grid;grid-template-columns:auto;background:linear-gradient(#2a2e38f0,#0c0e13f0);border:3px solid #cfd3da;border-radius:12px;padding:4px 10px 4px 12px;box-shadow:0 0 0 2px #000,0 6px 14px #000a;min-width:170px}
+.scorebar .team{display:flex;align-items:center;gap:12px;font-size:24px;letter-spacing:1px;color:#fff;text-shadow:2px 2px 0 #000;background:none!important;line-height:1.15}
+.scorebar .team.t0{order:0}.scorebar .team.t1{order:1}
+.scorebar .team .abbr{font-size:24px;min-width:64px}
+.scorebar .team .pts{font-size:26px;margin-left:auto;font-variant-numeric:tabular-nums}
+.scorebar .team.poss .abbr::before{content:'';display:inline-block;border:7px solid transparent;border-left:11px solid #ffd400;margin:0 4px 0 -16px;vertical-align:middle}
+.scorebar .mid{order:2;display:flex;gap:12px;justify-content:space-between;align-items:baseline;border-top:2px solid #555;margin-top:2px;padding-top:1px}
+.scorebar .mid .clock{font-size:22px;color:#fff;font-variant-numeric:tabular-nums;order:1;text-shadow:2px 2px 0 #000}
+.scorebar .mid .qtr{font-size:20px;letter-spacing:1px;color:#fff;order:0;text-shadow:2px 2px 0 #000}
+.downbar{position:absolute;left:18px;top:122px;background:#0c0e13d9;border:2px solid #cfd3da;border-radius:8px;padding:2px 12px;font-size:17px;letter-spacing:1px;color:#fff;text-shadow:1px 1px 0 #000}
 .turbo{position:absolute;left:24px;bottom:24px;width:220px;height:18px;border:2px solid #fff;background:#000a;transform:skewX(-20deg)}
 .turbo i{display:block;height:100%;background:linear-gradient(90deg,#ff4d00,var(--amber));transition:width .05s linear}
 .turbo.p2{left:auto;right:24px}
@@ -76,10 +78,10 @@ html,body{height:100%;touch-action:manipulation;-webkit-tap-highlight-color:tran
 .touch .pad button,.touch .top button{pointer-events:auto;touch-action:none;position:absolute;width:72px;height:72px;border-radius:50%;border:2px solid #fff;color:#fff;font:inherit;font-size:24px;background:#0008;text-shadow:1px 1px 0 #000}
 .touch .pad .a{right:70px;bottom:0;background:#2ecc4088}.touch .pad .b{right:0;bottom:70px;background:#ff413688}.touch .pad .x{right:140px;bottom:70px;background:#0074d988}.touch .pad .y{right:70px;bottom:140px;background:#ffdc0088}
 .touch .pad .turbo{right:160px;bottom:0;width:84px;height:48px;border-radius:12px;font-size:18px;background:#ff6a0088}
-.touch .top{position:absolute;left:8px;right:8px;top:8px;display:flex;justify-content:space-between;gap:10px;pointer-events:none}
+.touch .top{position:absolute;right:8px;top:8px;display:flex;justify-content:flex-end;gap:10px;pointer-events:none}
 .touch .top button{position:static;width:auto;height:40px;border-radius:10px;font-size:16px;padding:0 14px}
 .touch button.on{filter:brightness(1.6)}
 @media (hover:hover) and (pointer:fine){.touch{display:none}}
 @media (hover:none) and (pointer:coarse){.fire{bottom:190px}.fire.p2{bottom:270px}}
 /* short viewports (phones in landscape) */
-@media (max-height:520px){.screen h1{font-size:min(10vw,56px);letter-spacing:4px}.screen h2{font-size:18px;margin:4px 0 10px}.menu{gap:6px;min-width:300px}.menu button,.btn{font-size:20px;padding:6px 18px;border-width:2px}.small{font-size:12px;margin-top:10px;max-width:90vw}.rules{min-width:360px;gap:2px}.rules .row{font-size:15px;padding:2px 8px}.rules .row button{height:24px;width:28px}.season{font-size:12px;gap:24px;line-height:1.35}.season .hd{font-size:14px}.boxscore table{font-size:11px}.boxscore td,.boxscore th{padding:1px 8px}.pick{padding-bottom:6px}.pick .box{min-width:0;padding:6px 10px}.pick h3{font-size:14px;letter-spacing:2px;margin-bottom:4px}.pick h3 small{font-size:11px}.plays{gap:4px}.plays button{font-size:13px;padding:3px 4px;gap:2px}.plays canvas{width:96px;height:54px}.pick .foot{font-size:11px;margin-top:4px}.scorebar .team{font-size:20px;padding:4px 10px;min-width:120px}.scorebar .team .pts{font-size:24px}.scorebar .mid .clock{font-size:22px}.downbar{top:58px;font-size:15px;padding:2px 10px}}
+@media (max-height:520px){.screen h1{font-size:min(10vw,56px);letter-spacing:4px}.screen h2{font-size:18px;margin:4px 0 10px}.menu{gap:6px;min-width:300px}.menu button,.btn{font-size:20px;padding:6px 18px;border-width:2px}.small{font-size:12px;margin-top:10px;max-width:90vw}.rules{min-width:360px;gap:2px}.rules .row{font-size:15px;padding:2px 8px}.rules .row button{height:24px;width:28px}.season{font-size:12px;gap:24px;line-height:1.35}.season .hd{font-size:14px}.boxscore table{font-size:11px}.boxscore td,.boxscore th{padding:1px 8px}.pick{padding-bottom:6px}.pick .box{min-width:0;padding:6px 10px}.pick h3{font-size:14px;letter-spacing:2px;margin-bottom:4px}.pick h3 small{font-size:11px}.plays{gap:4px}.plays button{font-size:13px;padding:3px 4px;gap:2px}.plays canvas{width:96px;height:54px}.pick .foot{font-size:11px;margin-top:4px}.scorebar{left:8px;top:8px;min-width:130px;padding:2px 8px 2px 10px}.scorebar .team,.scorebar .team .abbr{font-size:17px}.scorebar .team .abbr{min-width:46px}.scorebar .team .pts{font-size:18px}.scorebar .mid .clock,.scorebar .mid .qtr{font-size:15px}.downbar{left:8px;top:86px;font-size:13px;padding:1px 8px}}

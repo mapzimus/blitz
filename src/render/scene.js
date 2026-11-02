@@ -88,9 +88,9 @@ export class Scene {
       g.position.set(x, 0, FIELD.mid); g.traverse(o => { o.castShadow = true; }); g.userData.drawn = true; W.add(g);
     }
     // markers
-    this.los = new THREE.Mesh(new THREE.PlaneGeometry(0.18, FIELD.width), new THREE.MeshBasicMaterial({ color: 0x2b6cff, transparent: true, opacity: 0.85 }));
+    this.los = new THREE.Mesh(new THREE.PlaneGeometry(0.22, FIELD.width), new THREE.MeshBasicMaterial({ color: 0x3a7bff, transparent: true, opacity: 0.75 }));
     this.los.rotation.x = -Math.PI / 2; this.los.position.y = 0.02; W.add(this.los);
-    this.fdl = new THREE.Mesh(new THREE.PlaneGeometry(0.18, FIELD.width), new THREE.MeshBasicMaterial({ color: 0xffe600, transparent: true, opacity: 0.9 }));
+    this.fdl = new THREE.Mesh(new THREE.PlaneGeometry(0.4, FIELD.width), new THREE.MeshBasicMaterial({ color: 0xffe600, transparent: true, opacity: 0.95 }));
     this.fdl.rotation.x = -Math.PI / 2; this.fdl.position.y = 0.02; W.add(this.fdl);
     // ball
     this.ball = new THREE.Mesh(new THREE.SphereGeometry(0.17, 14, 10), new THREE.MeshStandardMaterial({ color: 0x6b3a1e, roughness: 0.7 }));
@@ -111,7 +111,7 @@ export class Scene {
       const root = this.assetRoot = new THREE.Group(); this.scene.add(root);
       const home = TEAM_CODE[this.teams[0].abbr] || 'md', away = TEAM_CODE[this.teams[1].abbr] || 'md';
       root.add(await buildField(assets));
-      root.add(await buildStadium(assets, home));
+      const stadium = await buildStadium(assets, home); root.add(stadium); this.crowdTick = stadium.userData.tick || null;
       root.add(await buildExtras(assets, home, away, 1 + ((Math.random() * 5) | 0)));
       try { const ball = await buildBall(assets); this.ball.visible = false; this.realBall = ball; root.add(ball); } catch (e) { console.warn('ball', e); }
       this.scene.background = null; this.scene.fog = null;
@@ -178,6 +178,7 @@ export class Scene {
     const fireTeam = holder ? holder.team : (b.inAir && b.thrower ? b.thrower.team : -1);
     if (fireTeam >= 0 && g.fire[fireTeam] && g.phase === PHASE.LIVE) this.flames.spawn(this.ball.position.x, this.ball.position.y, this.ball.position.z, 5);
     this.flames.update(dt);
+    if (this.crowdTick) { this.excite = Math.max(0, (this.excite || 0) - dt * 0.4); this.crowdTick(dt, this.excite); }
     this.updateCamera(g, dt);
     this.renderer.render(this.scene, this.camera);
   }
@@ -188,7 +189,7 @@ export class Scene {
     let fx, fy, px, py, ph, lh = 1.2;
     const k = 1 - Math.exp(-dt * 4.5);
     if (g.phase === PHASE.PLAYCALL || g.phase === PHASE.PAT_CHOICE || g.phase === PHASE.HALFTIME || g.phase === PHASE.FINAL) {
-      fx = g.los + dir * 10; fy = FIELD.mid; px = g.los - dir * 26; py = FIELD.mid; ph = 22;
+      fx = g.los + dir * 12; fy = FIELD.mid; px = g.los - dir * 15; py = FIELD.mid; ph = 8.5;
     } else if (g.phase === PHASE.KICKOFF) {
       fx = g.los + dir * 20; fy = FIELD.mid; px = g.los - dir * 24; py = FIELD.mid; ph = 16;
     } else if (g.replay) {
@@ -200,12 +201,14 @@ export class Scene {
       const s = g.ents[g.scorer.team][g.scorer.idx]; const a = this.t * 1.1;
       fx = s.x; fy = s.y; px = s.x + Math.cos(a) * 5.5; py = s.y + Math.sin(a) * 5.5; ph = 2.4; lh = 1.3;
     } else {
+      // Blitz camera: low and close behind the play, looking downfield (tunable live via window.__cam)
+      const C = { back: 14, height: 7.5, ahead: 12, aheadAir: 16, look: 0, side: 0.45, ...(window.__cam || {}) };
       const c = g.carrier();
       const tx = c ? c.x : b.x, ty = c ? c.y : b.y;
-      const ahead = b.inAir ? 10 : 7;
-      fx = tx + dir * ahead; fy = lerp(ty, FIELD.mid, 0.35);
-      px = tx - dir * 19; py = lerp(ty, FIELD.mid, 0.55); ph = 12.5;
-      if (g.phase === PHASE.DEAD) { px = tx - dir * 14; ph = 9; lh = 0.8; }
+      const ahead = b.inAir ? C.aheadAir : C.ahead;
+      fx = tx + dir * ahead; fy = lerp(ty, FIELD.mid, C.side);
+      px = tx - dir * C.back; py = lerp(ty, FIELD.mid, C.side); ph = C.height; lh = C.look;
+      if (g.phase === PHASE.DEAD) { px = tx - dir * C.back * 0.8; ph = C.height * 0.8; lh = 0.6; }
     }
     this.camPos.x = lerp(this.camPos.x, px, k); this.camPos.y = lerp(this.camPos.y, ph, k); this.camPos.z = lerp(this.camPos.z, py, k);
     this.camLook.x = lerp(this.camLook.x, fx, k); this.camLook.y = lerp(this.camLook.y, lh, k); this.camLook.z = lerp(this.camLook.z, fy, k);
