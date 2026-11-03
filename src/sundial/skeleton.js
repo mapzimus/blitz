@@ -93,13 +93,22 @@ export class Rig {
   }
   detach(obj) { this.attachments = this.attachments.filter(a => a.obj !== obj); this.group.remove(obj); }
   bonePosition(bone, out) { return (out || new THREE.Vector3()).setFromMatrixPosition(this.world[bone]).multiplyScalar(this.group.scale.x).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.group.rotation.y).add(this.group.position); }
-  play(clip, { loop = true, speed = 1, restart = false } = {}) {
+  // Switching clips crossfades from the current pose over `fade` seconds instead of snapping.
+  play(clip, { loop = true, speed = 1, restart = false, fade = 0.18 } = {}) {
     if (this.clip === clip && !restart) { this.loop = loop; this.speed = speed; return; }
+    if (this.clip && fade > 0) { this.from = this.locals.map(l => ({ pos: l.pos.slice(), rot: l.rot.slice() })); this.fade = 0; this.fadeDur = fade; }
     this.clip = clip; this.loop = loop; this.speed = speed; this.time = 0; this.done = false;
   }
-  // Sample bone b at the clip's time t (frames) into out {pos, rot}.
-  sample(bone, b, t, out) {
-    const keys = this.clip.keys, n = keys.length;
+  // Upper-body layer: bones from the waist up (waist, neck, head, both arms) follow `clip` while the
+  // legs keep the base clip, so a character can run and keep the gun raised. null drops the layer.
+  setUpper(clip) {
+    if (this.upper === clip) return;
+    if (this.clip) { this.from = this.locals.map(l => ({ pos: l.pos.slice(), rot: l.rot.slice() })); this.fade = 0; this.fadeDur = 0.15; }
+    this.upper = clip; this.upperTime = 0;
+  }
+  // Sample bone b at time t (frames) of `clip` (default: the base clip) into out {pos, rot}.
+  sample(bone, b, t, out, clip = this.clip) {
+    const keys = clip.keys, n = keys.length;
     let k = 0;
     while (k < n - 1 && keys[k + 1] <= t) k++;
     const k2 = Math.min(n - 1, k + 1);
@@ -125,11 +134,30 @@ export class Rig {
       if (this.loop) this.time %= total; else { this.time = total - 0.001; this.done = true; }
     }
     const c = this.clip;
+    const up = this.upper;
+    if (up) { this.upperTime = (this.upperTime + dt * 60) % Math.max(1, up.total); }
     for (let i = 0; i < 19; i++) {
-      const bn = c.bones[i];
+      const useUp = up && i >= 2 && i <= 12;
+      const clip = useUp ? up : c;
+      const bn = clip.bones[i];
       if (!bn || bn.kind === 'unknown') continue;
-      if (bn.kind === 'bind') { this.locals[i].pos = bn.pos; this.locals[i].rot = bn.rot; continue; }
-      this.sample(bn, i, this.time, this.locals[i]);
+      const L = this.locals[i];
+      if (bn.kind === 'bind') { L.pos = bn.pos.slice(); L.rot = bn.rot.slice(); continue; }
+      this.sample(bn, i, useUp ? this.upperTime : this.time, L, clip);
+    }
+    // Crossfade from the pose held when the clip changed.
+    if (this.from && this.fade < this.fadeDur) {
+      this.fade += dt;
+      const f = Math.min(1, this.fade / this.fadeDur), s = f * f * (3 - 2 * f);
+      const qa = new THREE.Quaternion(), qb = new THREE.Quaternion();
+      for (let i = 0; i < 19; i++) {
+        const A = this.from[i], L = this.locals[i];
+        qa.set(A.rot[0], A.rot[1], A.rot[2], A.rot[3]); qb.set(L.rot[0], L.rot[1], L.rot[2], L.rot[3]);
+        qa.slerp(qb, s).normalize();
+        L.rot = [qa.x, qa.y, qa.z, qa.w];
+        L.pos = [A.pos[0] + (L.pos[0] - A.pos[0]) * s, A.pos[1] + (L.pos[1] - A.pos[1]) * s, A.pos[2] + (L.pos[2] - A.pos[2]) * s];
+      }
+      if (f >= 1) this.from = null;
     }
     worldMatrices(this.locals, this.world);
     for (const o of this.group.children) {

@@ -242,7 +242,7 @@ addEventListener('keyup', e => { keys.delete(e.code); if (e.code === 'Tab') $('#
 addEventListener('wheel', e => { if (playing()) selectWeapon(player.cur + (e.deltaY > 0 ? 1 : -1)); });
 addEventListener('contextmenu', e => e.preventDefault());
 
-let locked = false, noLock = false, dragging = false, dragMoved = 0;
+let locked = false, noLock = false, dragging = false, dragMoved = 0, aimHeld = false;
 document.addEventListener('pointerlockchange', () => { locked = document.pointerLockElement === canvas; if (!locked && playing() && !touch.active && !noLock) msg('CLICK TO AIM', 2500); });
 // Browsers only grant the mouse lock inside a click. A request made after a level finishes loading is
 // refused, so that is not treated as "no lock available": the next click on the game asks again.
@@ -255,12 +255,12 @@ async function grabMouse(fromClick = false) {
 const playing = () => world.group && $('#setup').hidden && !match.over;
 canvas.addEventListener('mousedown', e => {
   if (!playing()) return;
-  if (e.button === 2) { player.zoom = true; return; }
+  if (e.button === 2) { aimHeld = true; return; }
   if (locked) { firing = true; fireOnce(); return; } // fire on press for every weapon; automatics keep going in step()
   if (!noLock) { grabMouse(true); return; }        // first click takes the mouse, it does not shoot
   dragging = true; dragMoved = 0;
 });
-canvas.addEventListener('mouseup', e => { if (e.button === 2) player.zoom = false; else { firing = false; dragging = false; } });
+canvas.addEventListener('mouseup', e => { if (e.button === 2) aimHeld = false; else { firing = false; dragging = false; } });
 // Hold-to-look fallback: a click that did not turn the view is a shot.
 canvas.addEventListener('click', () => { if (playing() && noLock && dragMoved < 6) fireOnce(); });
 // Raw look input is gathered here and applied once per frame in step(), so turning speed does not
@@ -369,7 +369,7 @@ function step(dt) {
     player.vel.y -= 16 * dt;
     if (player.grounded && (keys.has('Space') || touch.held.has('jump'))) { player.vel.y = 6; player.grounded = false; }
     if (touch.active) {
-      for (const k of touch.taps.splice(0)) { if (k === 'next') selectWeapon(player.cur + 1); if (k === 'reload') reload(); if (k === 'board') { if (world.story) $('#objectives').hidden = !$('#objectives').hidden; else $('#board').hidden = !$('#board').hidden; } if (k === 'fire') fireOnce(); }
+      for (const k of touch.taps.splice(0)) { if (k === 'next') selectWeapon(player.cur + 1); if (k === 'reload') reload(); if (k === 'board') { if (world.story) $('#objectives').hidden = !$('#objectives').hidden; else $('#board').hidden = !$('#board').hidden; } if (k === 'fire') fireOnce(); if (k === 'aim') { touch.aimOn = !touch.aimOn; document.querySelector('#touch .tb[data-k=aim]')?.classList.toggle('locked', touch.aimOn); } }
     }
     const move = new THREE.Vector3(player.vel.x, 0, player.vel.z).multiplyScalar(dt);
     const before = player.pos.clone();
@@ -401,8 +401,10 @@ function step(dt) {
     camera.rotation.z = 0.9 * t; camera.rotation.x = player.pitch * (1 - t) + 0.3 * t;
   }
   const wdef = curWeapon() && curWeapon().def;
-  const fovWant = player.zoom && wdef && wdef.zoom ? 80 / wdef.zoom : 80;
-  if (Math.abs(camera.fov - fovWant) > 0.1) { camera.fov += (fovWant - camera.fov) * 0.3; camera.updateProjectionMatrix(); }
+  // Aiming: right mouse held, or the phone AIM button toggled. Every weapon zooms a little; scoped ones a lot.
+  player.zoom = !player.dead && (aimHeld || touch.aimOn === true);
+  const fovWant = player.zoom ? (wdef && wdef.zoom ? 80 / wdef.zoom : 60) : 80;
+  if (Math.abs(camera.fov - fovWant) > 0.1) { camera.fov += (fovWant - camera.fov) * Math.min(1, dt * 14); camera.updateProjectionMatrix(); }
 
   if (world.bots) world.bots.update(dt, player);
   if (world.proj) world.proj.update(dt, projectileHit);
@@ -423,22 +425,78 @@ function step(dt) {
     $('#clock').textContent = `${Math.floor(Math.max(0, match.left) / 60)}:${String(Math.floor(Math.max(0, match.left) % 60)).padStart(2, '0')}`;
   }
 
-  // view model bob/recoil
-  const t = performance.now() / 1000;
-  if (weapon) {
-    const moving = tmp.lengthSq() > 0 && player.grounded ? 1 : 0;
-    const target = weaponRest.clone().add(new THREE.Vector3(Math.sin(t * 7) * 0.004 * moving, Math.abs(Math.cos(t * 7)) * 0.006 * moving - recoil, recoil * 0.6));
-    if (player.zoom) target.set(0, -0.12, -0.3);
-    weapon.position.lerp(target, 0.3);
-    recoil *= 0.75;
-    for (const f of weapon.flash || []) f.visible = recoil > 0.012;
-    weapon.visible = !player.dead;
+  animateViewModel(dt);
+  updateCrosshair(dt);
+}
+
+// ---------- first-person gun motion ----------
+// Everything here is an offset from the rest pose, recomputed each frame: aim blend, sway from turning,
+// walking bob, recoil kick, reload dip, raise after a weapon switch, dip on landing.
+const vm = { aim: 0, swayX: 0, swayY: 0, bobT: 0, kick: 0, raise: 1, land: 0, wasGrounded: true };
+function animateViewModel(dt) {
+  if (!weapon) return;
+  const w = curWeapon(), d = w && w.def;
+  const scoped = !!(d && d.zoom);
+  vm.aim += ((player.zoom ? 1 : 0) - vm.aim) * Math.min(1, dt * 12);
+  const free = 1 - vm.aim * 0.75; // aiming steadies the gun
+  // Sway: the gun lags behind the view when turning, and rolls a little into the turn.
+  const tx = Math.max(-0.045, Math.min(0.045, -player.lookVel.x * 0.0011));
+  const ty = Math.max(-0.035, Math.min(0.035, player.lookVel.y * 0.0011));
+  vm.swayX += (tx - vm.swayX) * Math.min(1, dt * 9); vm.swayY += (ty - vm.swayY) * Math.min(1, dt * 9);
+  // Bob: a figure-eight that grows with running speed.
+  const hs = player.grounded ? Math.min(1, Math.hypot(player.vel.x, player.vel.z) / 5.5) : 0;
+  vm.bobT += dt * (5 + 6 * hs);
+  const bx = Math.sin(vm.bobT) * 0.014 * hs, by = -Math.abs(Math.cos(vm.bobT)) * 0.018 * hs;
+  // Landing dip.
+  if (player.grounded && !vm.wasGrounded) vm.land = Math.min(1, Math.abs(player.vel.y) / 8 + 0.4);
+  vm.wasGrounded = player.grounded;
+  vm.land *= Math.exp(-dt * 8);
+  // Reload: dip and tilt the gun down and back up over the reload time.
+  const rp = player.reloading > 0 && player.reloadTotal ? Math.sin(Math.PI * (1 - player.reloading / player.reloadTotal)) : 0;
+  // Raise after switching weapons.
+  vm.raise = Math.max(0, vm.raise - dt * 3.2);
+  const r2 = vm.raise * vm.raise;
+  vm.kick *= Math.exp(-dt * 14);
+  const rest = weaponRest, aimPos = AIM_POS;
+  const p = weapon.position;
+  p.set(rest.x + (aimPos.x - rest.x) * vm.aim, rest.y + (aimPos.y - rest.y) * vm.aim, rest.z + (aimPos.z - rest.z) * vm.aim);
+  p.x += (vm.swayX + bx) * free;
+  p.y += (vm.swayY + by) * free - 0.16 * rp - 0.25 * r2 - 0.03 * vm.land + vm.kick * 0.15;
+  p.z += vm.kick * 0.9;
+  weapon.rotation.set(vm.kick * 2.4 - 0.9 * rp - 0.7 * r2 + vm.swayY * 2, Math.PI + vm.swayX * 1.6 * free, (vm.swayX * 2.5 + Math.sin(vm.bobT) * 0.025 * hs) * free + 0.5 * rp);
+  for (const f of weapon.flash || []) f.visible = recoil > 0.012;
+  recoil *= Math.exp(-dt * 16);
+  // A scoped weapon is replaced by the scope view once fully aimed.
+  weapon.visible = !player.dead && !(scoped && vm.aim > 0.85);
+  $('#zoom').style.display = scoped && vm.aim > 0.85 && !player.dead ? 'block' : 'none';
+}
+// Crosshair: four ticks that spread while moving or firing, tighten when aiming, and turn red over an enemy.
+const crossRay = new THREE.Raycaster();
+let crossSpread = 0, crossCheck = 0;
+function updateCrosshair(dt) {
+  const el = $('#cross'); if (!el) return;
+  const w = curWeapon(), d = w && w.def;
+  const moving = Math.min(1, Math.hypot(player.vel.x, player.vel.z) / 5.5);
+  crossSpread += ((moving * 10 + Math.min(14, recoil * 400)) - crossSpread) * Math.min(1, dt * 10);
+  const gap = Math.max(2, (4 + crossSpread) * (1 - vm.aim * 0.6));
+  el.style.setProperty('--gap', `${gap.toFixed(1)}px`);
+  el.style.display = d && d.zoom && vm.aim > 0.85 ? 'none' : '';
+  // Enemy under the crosshair? Checked ten times a second; cheap enough on phones.
+  crossCheck -= dt;
+  if (crossCheck <= 0 && world.bots) {
+    crossCheck = 0.1;
+    const dir = new THREE.Vector3(); camera.getWorldDirection(dir);
+    crossRay.set(camera.position, dir); crossRay.far = 80;
+    const hits = crossRay.intersectObjects([...world.bots.groups, ...world.solid], true);
+    const hot = !!(hits.length && world.bots.find(hits[0].object));
+    el.classList.toggle('hot', hot);
   }
 }
 
 // ---------- player weapons ----------
 let weapon = null, recoil = 0;
-const weaponRest = new THREE.Vector3(0.18, -0.2, -0.38);
+const weaponRest = new THREE.Vector3(0.16, -0.17, -0.36);
+const AIM_POS = new THREE.Vector3(0.085, -0.135, -0.34); // aiming brings the gun in and up, as in the original, not to the centre
 const viewModels = new Map();
 const flash = new THREE.PointLight(0xffc070, 0, 6); scene.add(flash);
 const tracerMat = new THREE.LineBasicMaterial({ color: 0xff8040, transparent: true, opacity: 0.9, depthWrite: false });
@@ -469,11 +527,13 @@ function viewModel(key) {
   const gm = parseModel(world.gun.get(p));
   const g = modelToGroup(gm, world.gunTex);
   g.flash = hideFlash(g);
-  // View models differ in native size; scale each so its length along the barrel is about the same.
+  // View models differ in native size. Each is scaled to an on-screen length by class: handguns about
+  // 26 cm, long guns about 44 cm, seen from the weapon camera, which fills the lower right as in the original.
   const box = new THREE.Box3();
   g.traverse(o => { if (o.isMesh && o.visible) { o.geometry.computeBoundingBox(); box.union(o.geometry.boundingBox); } });
-  const len = Math.max(0.3, box.max.z - box.min.z) * (gm.scale || 1);
-  g.scale.setScalar(0.14 * (gm.scale || 1) / Math.max(0.8, len));
+  const native = Math.max(0.05, box.max.z - box.min.z);
+  const long = native * (gm.scale || 1) > 0.75;
+  g.scale.setScalar((long ? 0.44 : 0.26) / native);
   g.rotation.set(0, Math.PI, 0);
   viewModels.set(key, g);
   return g;
@@ -481,11 +541,12 @@ function viewModel(key) {
 function showViewModel(key) {
   if (weapon) weaponScene.remove(weapon);
   weapon = viewModel(key);
-  if (weapon) { weapon.position.copy(weaponRest).add(new THREE.Vector3(0, -0.15, 0)); weaponScene.add(weapon); }
+  vm.raise = 1; // swing up from below
+  if (weapon) { weapon.position.copy(weaponRest).add(new THREE.Vector3(0, -0.25, 0)); weaponScene.add(weapon); }
 }
 function reload() {
   const w = curWeapon(); if (!w || player.reloading > 0 || w.clip >= w.def.clip || w.ammo <= 0) return;
-  player.reloading = w.def.kind === 'beam' ? 1.2 : 1.6;
+  player.reloading = player.reloadTotal = w.def.kind === 'beam' ? 1.2 : 1.6;
   sfx.play(w.def.reload || 'reload22_01', { volume: 0.6 });
 }
 function finishReload() {
@@ -500,6 +561,7 @@ function fireOnce() {
   const d = w.def;
   w.clip--; player.cool = 60 / d.rpm;
   recoil = d.kind === 'beam' ? 0.008 : Math.min(0.06, 0.012 + d.dmg / 1500);
+  vm.kick = Math.min(0.09, vm.kick + (d.kind === 'beam' ? 0.006 : 0.018 + d.dmg / 1400) * (player.zoom ? 0.5 : 1));
   flash.intensity = d.quiet ? 4 : 30; flash.position.copy(camera.position);
   sfx.play(d.sfx, { volume: d.quiet ? 0.45 : 0.8 });
   if (world.bots) world.bots.hearShot(camera.position, d.quiet ? 6 : 30); // story guards come to the noise
@@ -1027,6 +1089,6 @@ function render(dt) {
     renderer.autoClear = false; renderer.clearDepth();
   }
   renderer.render(scene, camera);
-  if (weapon && !player.zoom) { renderer.autoClear = false; renderer.clearDepth(); renderer.render(weaponScene, weaponCam); }
+  if (weapon && weapon.visible) { renderer.autoClear = false; renderer.clearDepth(); renderer.render(weaponScene, weaponCam); }
 }
 requestAnimationFrame(frame);

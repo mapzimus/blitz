@@ -47,7 +47,7 @@ export class Bots {
       const g = modelToGroup(model, this.texSrc, { lit: true });
       g.scale.setScalar(model.scale || 1);
       g.userData.bot = true;
-      const b = { id: i, name: (this.text && this.text.get(CHARACTER_TEXT[name])) || this.names[i] || `Contender ${i + 1}`, group: g, hp: 100, node: null, target: null, cool: 1 + Math.random(), dead: 0, speed: 2.6 + Math.random() * 0.8, hitFlash: 0, react: 0, rig: null, state: '', kills: 0, deaths: 0, weapon: null, gunObj: null };
+      const b = { id: i, name: (this.text && this.text.get(CHARACTER_TEXT[name])) || this.names[i] || `Contender ${i + 1}`, group: g, hp: 100, node: null, target: null, cool: 1 + Math.random(), dead: 0, speed: 4.4 + Math.random() * 0.8, hitFlash: 0, react: 0, rig: null, state: '', kills: 0, deaths: 0, weapon: null, gunObj: null };
       if (this.bind) {
         b.rig = new Rig(g, model, this.bind);
         // Hats are separate models in character space; they ride the head bone.
@@ -74,7 +74,7 @@ export class Bots {
     g.scale.setScalar(m.scale || 1);
     g.userData.bot = true;
     const stem = path.replace(/^.*\//, '').replace(/\.raw$/, '');
-    const b = { id: this.list.length, name: name || (this.text && this.text.get(CHARACTER_TEXT[stem])) || 'Guard', group: g, hp, maxHp: hp, node: null, target: null, cool: 1 + Math.random(), dead: 0, speed: 2.4 + Math.random() * 0.6, hitFlash: 0, react: 0, rig: null, state: '', kills: 0, deaths: 0, weapon: null, gunObj: null, story: true, alert: false, route, routeIdx: 0, wait: 0, home: pos.clone(), homeYaw: yaw, lives: 1, skill: skill || 1 };
+    const b = { id: this.list.length, name: name || (this.text && this.text.get(CHARACTER_TEXT[stem])) || 'Guard', group: g, hp, maxHp: hp, node: null, target: null, cool: 1 + Math.random(), dead: 0, speed: 4.2 + Math.random() * 0.8, hitFlash: 0, react: 0, rig: null, state: '', kills: 0, deaths: 0, weapon: null, gunObj: null, story: true, alert: false, route, routeIdx: 0, wait: 0, home: pos.clone(), homeYaw: yaw, lives: 1, skill: skill || 1 };
     if (this.bind) {
       b.rig = new Rig(g, m, this.bind);
       const hatPath = `ob/chrs/${stem}_hat.raw`;
@@ -149,10 +149,11 @@ export class Bots {
     if (b.hp <= 0) {
       b.dead = 0.001; b.deaths++;
       this.onBotKilled(b, by);
-      this.setAnim(b, pick(DEATH), { loop: false });
+      if (b.rig) b.rig.setUpper(null);
+      this.setAnim(b, pick(DEATH), { loop: false, fade: 0.08 });
       return true;
     }
-    if (dmg >= 15) { b.react = 0.45; this.setAnim(b, pick(HIT), { loop: false }); }
+    if (dmg >= 15) { b.react = 0.45; if (b.rig) b.rig.setUpper(null); this.setAnim(b, pick(HIT), { loop: false, fade: 0.06 }); }
     return false;
   }
 
@@ -193,7 +194,7 @@ export class Bots {
       if (o === b || o.dead || (b.story && o.story)) continue;
       const op = o.group.position.clone(); op.y += 1.3;
       const d = eye.distanceTo(op);
-      if (d < 25 && (!best || d < best.dist * 0.8) && this.canSee(eye, op)) best = { who: o, pos: op, dist: d, moving: o.state === 'run_m0' };
+      if (d < 25 && (!best || d < best.dist * 0.8) && this.canSee(eye, op)) best = { who: o, pos: op, dist: d, moving: /run|walk/.test(o.state) };
     }
     return best;
   }
@@ -216,6 +217,8 @@ export class Bots {
       }
       if (b.hitFlash > 0) { b.hitFlash -= dt; const k = b.hitFlash > 0 ? 3 : 1; g.traverse(o => { if (o.isMesh && o.userData.part !== undefined) o.material.forEach(mt => mt.color.setScalar(k)); }); }
       if (b.react > 0) { b.react -= dt; continue; }
+      // Gun up (aiming pose on the upper body) whenever the character is fighting; relaxed on patrol.
+      if (b.rig) b.rig.setUpper(!b.story || b.alert ? this.clip('fire_pose_m0') : null);
 
       eye.copy(g.position); eye.y += 1.6;
       if (b.story && !b.alert) {
@@ -234,8 +237,8 @@ export class Bots {
       const w = WEAPONS[b.weapon] || WEAPONS.uzi;
       if (tgt) {
         const toT = tgt.pos.clone().sub(eye); const dist = tgt.dist;
+        const face = toT.clone().setY(0).normalize();
         b.lastSeen = 0; b.hunt = this.nearestNode(tgt.pos);
-        g.rotation.y = Math.atan2(toT.x, toT.z);
         b.cool -= dt;
         if (b.cool <= 0) {
           // Bots fire in bursts at a fraction of the weapon's rate.
@@ -244,7 +247,8 @@ export class Bots {
           this.onShoot(b, w, this.muzzle(b), tgt.pos, Math.random() < acc, tgt.who);
         }
         const keep = w.kind === 'rocket' || w.kind === 'grenade' ? 10 : w.kind === 'beam' ? 3 : 7;
-        if (dist > keep) this.walk(b, dt, true); else this.setAnim(b, 'fire_pose_m0');
+        // Close in while keeping the gun on the target, then side-step around it once in range.
+        if (dist > keep) this.walk(b, dt, true, face); else this.strafe(b, dt, toT);
       } else {
         b.cool = Math.max(b.cool, 0.4);
         b.lastSeen = (b.lastSeen || 0) + dt;
@@ -270,12 +274,10 @@ export class Bots {
       const d = to.length();
       if (d < 0.4) { b.routeIdx++; b.wait = b.beat ? 2 + Math.random() * 4 : 0.8 + Math.random() * 2; return; }
       to.normalize();
-      g.position.addScaledVector(to, Math.min(d, b.speed * 0.55 * dt));
-      const yaw = Math.atan2(to.x, to.z);
-      let dy = yaw - g.rotation.y; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
-      g.rotation.y += dy * Math.min(1, dt * 6);
-      this.setAnim(b, 'walk_m0', { speed: 0.9 });
-      if (b.state !== 'walk_m0') this.setAnim(b, 'run_m0', { speed: 0.5 });
+      const walkSpeed = 1.5;
+      g.position.addScaledVector(to, Math.min(d, walkSpeed * dt));
+      const fl = this.floorAt(g.position); if (fl !== null) g.position.y += (fl - g.position.y) * Math.min(1, dt * 10);
+      this.locomote(b, to, walkSpeed, dt);
       return;
     }
     b.wait -= dt;
@@ -308,8 +310,7 @@ export class Bots {
       // close: walk straight at it
       const to = flat.sub(g.position).normalize();
       g.position.addScaledVector(to, Math.min(d, b.speed * dt));
-      g.rotation.y = Math.atan2(to.x, to.z);
-      this.setAnim(b, 'run_m0', { speed: b.speed / 3.2 });
+      this.locomote(b, to, b.speed, dt);
       if (d < 0.2) b.seek = null;
       return true;
     }
@@ -318,7 +319,7 @@ export class Bots {
     return true;
   }
 
-  walk(b, dt, hunting = false) {
+  walk(b, dt, hunting = false, face = null) {
     const g = b.group;
     const to = b.target.pos.clone().sub(g.position);
     const d = to.length();
@@ -328,14 +329,76 @@ export class Bots {
       if (hunting && b.hunt) next = this.nextToward(b.node, b.hunt);
       if (!next) { const opts = b.node.next.filter(n => n !== b.node); next = opts[Math.floor(Math.random() * opts.length)] || b.node.next[0]; }
       b.target = next;
+      // keep moving this frame toward the new node, so arriving never costs a frozen frame
+      if (b.target && b.target !== b.node) return this.walk(b, dt, hunting, face);
       return;
     }
-    to.normalize();
-    g.position.addScaledVector(to, Math.min(d, b.speed * dt));
-    const yaw = Math.atan2(to.x, to.z);
-    let dy = yaw - g.rotation.y; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
-    g.rotation.y += dy * Math.min(1, dt * 8);
-    this.setAnim(b, 'run_m0', { speed: b.speed / 3.2 });
+    // Follow the slope of the link (y included), but steer and animate on the flat direction.
+    const step = Math.min(d, b.speed * dt);
+    g.position.addScaledVector(to, step / d);
+    this.locomote(b, to.setY(0).normalize(), b.speed, dt, face);
+  }
+
+  // Metres per second a clip's own root motion covers; playback is scaled to it so feet do not slide.
+  mps(name) {
+    this.mpsCache = this.mpsCache || new Map();
+    if (this.mpsCache.has(name)) return this.mpsCache.get(name);
+    const c = this.clip(name); let v = 0;
+    const r = c && c.bones[0];
+    if (r && r.kind === 'root' && r.pos.length > 1) { const a = r.pos[0], z = r.pos[r.pos.length - 1]; v = Math.hypot(z[0] - a[0], z[2] - a[2]) / (Math.max(1, c.total) / 60); }
+    if (!(v > 0.3)) v = /walk/.test(name) ? 2.9 : 5.9;
+    this.mpsCache.set(name, v);
+    return v;
+  }
+  // Animate a character moving along `dir` (unit, flat) at `speed` m/s. It faces `face` (unit, flat) when
+  // given (fighting: it keeps its gun on you while running or strafing), else the way it is going. The run
+  // clip is chosen from the travel direction relative to the facing, so sideways movement uses the strafe runs.
+  locomote(b, dir, speed, dt, face = null) {
+    const g = b.group;
+    const want = face ? Math.atan2(face.x, face.z) : Math.atan2(dir.x, dir.z);
+    let dy = want - g.rotation.y; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+    g.rotation.y += dy * Math.min(1, dt * (face ? 12 : 8));
+    const y = g.rotation.y;
+    const fwd = dir.x * Math.sin(y) + dir.z * Math.cos(y);
+    const right = -dir.x * Math.cos(y) + dir.z * Math.sin(y); // the character's right is -X when facing +Z
+    const walking = speed < 2.3;
+    let name;
+    if (fwd > 0.7) name = walking ? 'walk_m0' : 'run_m0';
+    else if (fwd < -0.7) name = walking ? 'walkback_m0' : 'runback_m0';
+    // Sideways: the disc's runright clip is a copy of runleft (the original mirrors it at run time), so
+    // both directions use the distinct side-walk clips, sped up to the movement speed.
+    else name = right > 0 ? 'walkright_m0' : 'walkleft_m0';
+    if (!this.clip(name)) name = walking ? 'walk_m0' : 'run_m0';
+    this.setAnim(b, name, { speed: Math.max(0.3, Math.min(2, speed / this.mps(name))) });
+  }
+  turnTo(b, face, dt, rate = 12) {
+    const g = b.group, want = Math.atan2(face.x, face.z);
+    let dy = want - g.rotation.y; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+    g.rotation.y += dy * Math.min(1, dt * rate);
+  }
+  // Floor height under a point, or null when there is nothing within reach (a ledge or a hole).
+  floorAt(pos, up = 1.2, down = 2.5) {
+    this.ray.set(pos.clone().setY(pos.y + up), new THREE.Vector3(0, -1, 0)); this.ray.far = up + down;
+    const h = this.ray.intersectObjects(this.solid, false);
+    return h.length ? h[0].point.y : null;
+  }
+  // Side-step around a target while shooting, as the original's enemies do instead of standing still.
+  strafe(b, dt, toT) {
+    const g = b.group;
+    b.strafeT = (b.strafeT || 0) - dt;
+    if (b.strafeT <= 0) { b.strafeT = 0.9 + Math.random() * 1.6; b.strafeDir = Math.random() < 0.5 ? -1 : 1; b.strafeStop = Math.random() < 0.3; }
+    const face = toT.clone().setY(0).normalize();
+    if (b.strafeStop) { this.turnTo(b, face, dt); this.setAnim(b, 'standpose_m0'); return; }
+    const side = new THREE.Vector3(face.z, 0, -face.x).multiplyScalar(b.strafeDir);
+    const speed = 2.9; // the side-walk clips cover 2.9 m/s at normal playback
+    const next = g.position.clone().addScaledVector(side, 0.7);
+    const eye = g.position.clone(); eye.y += 1.0;
+    const blocked = !this.canSee(eye, eye.clone().addScaledVector(side, 0.9));
+    const floor = blocked ? null : this.floorAt(next);
+    if (blocked || floor === null || Math.abs(floor - g.position.y) > 0.6) { b.strafeDir = -b.strafeDir; b.strafeT = 0.6; this.turnTo(b, face, dt); this.setAnim(b, 'standpose_m0'); return; }
+    g.position.addScaledVector(side, speed * dt);
+    g.position.y += (floor - g.position.y) * Math.min(1, dt * 10);
+    this.locomote(b, side, speed, dt, face);
   }
 
   get groups() { return this.list.filter(b => !b.dead).map(b => b.group); }

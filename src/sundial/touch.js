@@ -1,6 +1,6 @@
 // On-screen controls for phones: left half is a move stick, right half drags to look, buttons on the right.
 // main.js reads `touch.move` (x,y in -1..1), drains `touch.look` (dx,dy pixels) and checks `touch.held`.
-export const touch = { active: false, move: { x: 0, y: 0 }, look: { dx: 0, dy: 0 }, held: new Set(), taps: [] };
+export const touch = { active: false, move: { x: 0, y: 0 }, look: { dx: 0, dy: 0 }, held: new Set(), taps: [], aimOn: false };
 
 export function initTouch(force = false) {
   const coarse = force || (navigator.maxTouchPoints > 0 && matchMedia('(pointer: coarse)').matches);
@@ -16,7 +16,8 @@ export function initTouch(force = false) {
     <div class="tb" data-k="reload">RLD</div>
     <div class="tb" data-k="crouch">CRCH</div>
     <div class="tb" data-k="board">TAB</div>
-    <div class="tb" data-k="use">USE</div>`;
+    <div class="tb" data-k="use">USE</div>
+    <div class="tb" data-k="aim">AIM</div>`;
   document.body.appendChild(root);
   const left = root.querySelector('.left'), right = root.querySelector('.right'), knob = root.querySelector('.knob');
   let stickId = null, stickOrigin = null, lookId = null, lookLast = null;
