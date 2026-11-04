@@ -107,3 +107,11 @@ That puts `gun.pak`, `sounds.pak`, `anim.pak`, `fe_anim.pak`, `l_103.pak` (UI te
 
 Done on Max's account: bucket `backroom-pack`, project `backroom` at https://backroom-dly.pages.dev, Access app
 `backroom` (policy `me`), secrets set, archive uploaded. Logging in uses the One-time PIN emailed to the allowed address.
+
+## Recompiled KODIAK (the real game code)
+
+Built in WSL with ps2-web-recomp (`scripts/port.sh kodiak <disc>`), never committed. Files live in R2 under
+`recomp/kodiak/`: `ps2web.html`, `ps2web.{js,wasm,data}.gz`, and the disc as `disc.iso.partNNN` plus `disc.iso.manifest`.
+Upload with `node tools/recomp-upload.mjs disc|file <path> recomp/kodiak/<name>`. The KODIAK door redirects there
+when it exists; add `?rebuild` to open the hand-made rebuild.
+

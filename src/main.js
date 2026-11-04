@@ -464,6 +464,13 @@ function finalScreen() {
   title();
   // Dev: ?pack=http://127.0.0.1:8779/BASSETS.ZIP loads the archive over local HTTP byte ranges.
   const packUrl = new URLSearchParams(location.search).get('pack');
+  // Private site: the classic door plays the real recompiled game when it is there. ?rebuild opens this rebuild instead.
+  if (cfg.variant === 'classic' && !packUrl && !location.search.includes('rebuild')) {
+    try {
+      const real = location.pathname.replace(/games\/[^/]+\/.*$/, '') + 'pack/recomp/kodiak/ps2web.html';
+      if ((await fetch(real, { method: 'HEAD' })).ok) { location.replace(real); return; }
+    } catch (e) { /* public site: nothing there */ }
+  }
   // Only this site's own origin or a loopback dev server may supply the archive.
   const packOk = (() => { try { const u = new URL(packUrl, location.href); return u.origin === location.origin || /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(u.origin); } catch { return false; } })();
   if (packUrl && packOk) {
