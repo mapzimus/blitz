@@ -7,6 +7,7 @@
 // - <file>.gz is served as <file> with Content-Encoding: gzip
 // - a disc too big for one upload lives as <key>.part000.. with a <key>.manifest JSON
 //   ({ size, partSize, parts }) and is stitched back together here for range reads
+const manifests = new Map();   // disc manifests, kept for this worker's lifetime: disc reads come in the thousands
 const TYPES = { html: 'text/html; charset=utf-8', js: 'text/javascript', wasm: 'application/wasm', json: 'application/json' };
 
 function headersFor(key) {
@@ -62,10 +63,13 @@ export async function onRequest({ request, env, params }) {
   const key = (params.path || []).join('/');
   if (!key || key.includes('..')) return new Response('bad key', { status: 400 });
   if (key.startsWith('recomp/')) {
-    const gz = await env.PACK.get(key + '.gz');
-    if (gz) return new Response(gz.body, { status: 200, encodeBody: 'manual', headers: { ...headersFor(key), 'Content-Encoding': 'gzip', 'Content-Length': String(gz.size), Vary: 'Accept-Encoding' } });
-    const man = await env.PACK.get(key + '.manifest');
-    if (man) return servePartitioned(request, env, key, await man.json());
+    if (key.endsWith('.iso')) {
+      if (!manifests.has(key)) { const man = await env.PACK.get(key + '.manifest'); if (man) manifests.set(key, await man.json()); }
+      if (manifests.has(key)) return servePartitioned(request, env, key, manifests.get(key));
+    } else {
+      const gz = await env.PACK.get(key + '.gz');
+      if (gz) return new Response(gz.body, { status: 200, encodeBody: 'manual', headers: { ...headersFor(key), 'Content-Encoding': 'gzip', 'Content-Length': String(gz.size), Vary: 'Accept-Encoding' } });
+    }
   }
   const head = await env.PACK.head(key);
   if (!head) return new Response('not found', { status: 404 });
