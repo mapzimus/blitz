@@ -18,7 +18,7 @@ function headersFor(key) {
     h['Cross-Origin-Embedder-Policy'] = 'require-corp';
     h['Cross-Origin-Resource-Policy'] = 'same-origin';
     h['X-Robots-Tag'] = 'noindex';
-    if (/\.(html|js)$/.test(key)) h['Cache-Control'] = 'private, no-cache';
+    if (!key.endsWith('.iso')) h['Cache-Control'] = 'private, no-cache';
   }
   return h;
 }
